@@ -1,4 +1,14 @@
+import functools
 from pathlib import Path
+
+
+@functools.lru_cache(maxsize=None)
+def load_correction_set(path):
+    """correctionlib.CorrectionSet.from_file with a process-level cache: the sets are
+    read-only and were re-opened (gzip + json parse) per category per chunk"""
+    import correctionlib
+
+    return correctionlib.CorrectionSet.from_file(str(path))
 
 # corrections from correctionlib https://cms-analysis-corrections.docs.cern.ch/
 correction_files = {
@@ -29,7 +39,8 @@ correction_files = {
         "2022postEE": "/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/Run3-22EFGSep23-Summer22EE-NanoAODv12/2025-08-14/muon_Z.json.gz",
         "2023preBPix": "/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/Run3-23CSep23-Summer23-NanoAODv12/2025-08-14/muon_Z.json.gz",
         "2023postBPix": "/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/Run3-23DSep23-Summer23BPix-NanoAODv12/2025-08-14/muon_Z.json.gz",
-        "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/2025-10-17/muon_Z.json.gz",
+        # 2026-06-18: latest 2024 file (the ID/iso SFs are identical to 2025-10-17)
+        "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/2026-06-18/muon_Z.json.gz",
     },
     "muon_hlt": {
         "2016preVFP": f"{Path.cwd()}/analysis/data/muon_hlt/2016preVFP_Muon_HLT_Eff.json",
@@ -84,6 +95,7 @@ correction_files = {
         "2022postEE": "/cvmfs/cms.cern.ch/rsync/cms-nanoAOD/jsonpog-integration/POG/EGM/2022_Summer22EE/electronHlt.json.gz",
         "2023preBPix": "/cvmfs/cms.cern.ch/rsync/cms-nanoAOD/jsonpog-integration/POG/EGM/2023_Summer23/electronHlt.json.gz",
         "2023postBPix": "/cvmfs/cms.cern.ch/rsync/cms-nanoAOD/jsonpog-integration/POG/EGM/2023_Summer23BPix/electronHlt.json.gz",
+        "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/EGM/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/2025-12-15/electronHlt.json.gz",
     },
     "electron_hlt_mc_eff": {
         "2016preVFP": f"{Path.cwd()}/analysis/data/electron_hlt/EGamma_HLT_MCEff_2016preVFP.json.gz",
@@ -125,6 +137,13 @@ correction_files = {
         "2023preBPix": "/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-23CSep23-Summer23-NanoAODv12/2025-08-20/ctagging.json.gz",
         "2023postBPix": "/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-23DSep23-Summer23BPix-NanoAODv12/2025-08-20/ctagging.json.gz",
         "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/2025-08-19/ctagging.json.gz",
+    },
+    "btagging": {
+        "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/2025-08-19/btagging.json.gz",
+    },
+    "tau": {
+        # TAU POG (CAT): DeepTau2018v2p5 VSjet/VSe/VSmu SFs, tau energy scale, tau trigger SFs
+        "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/TAU/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/tau.json.gz",
     },
     "ctagging_2d": {
         # PNet 2D pseudo-continuous HF-tagging SF (cmshgg ingredients), correction

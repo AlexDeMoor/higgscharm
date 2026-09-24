@@ -6,7 +6,7 @@ from pathlib import Path
 from random import random
 from scipy.special import erfinv, erf
 from analysis.corrections.met import update_met
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 from coffea.lookup_tools import txt_converters, rochester_lookup
 
 
@@ -403,7 +403,7 @@ def apply_muon_ss_corrections_run3(
     corrections_config: dict,
 ):
     muons = events.Muon
-    cset = correctionlib.CorrectionSet.from_file(correction_files["muon_ss"][year])
+    cset = load_correction_set(correction_files["muon_ss"][year])
 
     if hasattr(events, "genWeight"):
         # MC: both scale correction to gen Z peak AND resolution correction to Z width in data
@@ -455,7 +455,7 @@ def apply_muon_ss_corrections_run3(
             muon_ptscalecorr, muon_ptcorr, muons.eta, "down", cset, nested=True
         )
 
-    if corrections_config["object_shifts"]:
+    if hasattr(events, "genWeight") and corrections_config["object_shifts"]:
         mu_up, mu_down = events.Muon, events.Muon
         mu_resol_up, mu_resol_down = events.Muon, events.Muon
 
@@ -468,8 +468,7 @@ def apply_muon_ss_corrections_run3(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": mu_up,
                 },
                 f"CMS_scale_m_{year[:4]}Up",
@@ -478,8 +477,7 @@ def apply_muon_ss_corrections_run3(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": mu_down,
                 },
                 f"CMS_scale_m_{year[:4]}Down",
@@ -488,8 +486,7 @@ def apply_muon_ss_corrections_run3(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": mu_resol_up,
                 },
                 f"CMS_res_m_{year[:4]}Up",
@@ -498,8 +495,7 @@ def apply_muon_ss_corrections_run3(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": mu_resol_down,
                 },
                 f"CMS_res_m_{year[:4]}Down",
@@ -600,8 +596,7 @@ def apply_muon_ss_corrections_run2(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": mu_up,
                 },
                 f"CMS_rochester_{year[:4]}Up",
@@ -610,8 +605,7 @@ def apply_muon_ss_corrections_run2(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": mu_down,
                 },
                 f"CMS_rochester_{year[:4]}Down",

@@ -3,6 +3,7 @@ import gc
 import glob
 import json
 import logging
+import sys
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -55,6 +56,7 @@ def parse_arguments():
             "2022postEE",
             "2023preBPix",
             "2023postBPix",
+            "2024",
         ],
         help="Data year",
     )
@@ -154,11 +156,26 @@ def check_output_dir(workflow: str, year: str) -> Path:
 
 
 def get_sample_name(filename: str, year: str) -> str:
-    """return sample name from filename"""
-    sample_name = Path(filename).stem
-    if sample_name.rsplit("_")[-1].isdigit():
-        sample_name = "_".join(sample_name.rsplit("_")[:-1])
-    return sample_name.replace(f"{year}_", "")
+    """dataset (fileset key) of an output file: <dataset>[_<partition>].coffea.
+
+    Prefers an exact match with the fileset keys of the year (so that a dataset whose
+    name ends in digits, e.g. DYto2L_2Jets_50, is not truncated); otherwise strips one
+    trailing _<digits> partition suffix and a leading <year>_ prefix."""
+    import re
+    from analysis.filesets.utils import get_dataset_config
+
+    stem = re.sub(rf"^{re.escape(year)}_", "", Path(filename).stem)
+    try:
+        known = set(get_dataset_config(year))
+    except Exception:
+        known = set()
+    if stem in known:
+        return stem
+    stripped = re.sub(r"_\d+$", "", stem)
+    if stripped in known or not known:
+        return stripped
+    logging.warning(f"{filename}: sample name {stem!r} is not a fileset key of {year}")
+    return stripped
 
 
 def load_year_histograms(workflow: str, year: str):
@@ -226,6 +243,20 @@ if __name__ == "__main__":
             sample_name = get_sample_name(output_file, args.year)
             grouped_outputs[sample_name].append(output_file)
 
+        # local productions (scripts/htautau/run_signal_local.sh) record the expected
+        # part tags: refuse to normalise an incomplete set of parts
+        for sample, files in grouped_outputs.items():
+            parts_file = output_dir / sample / "local_parts.txt"
+            if parts_file.exists():
+                expected = {p.strip() for p in parts_file.read_text().split() if p.strip()}
+                present = {Path(f).stem for f in files}
+                missing = sorted(expected - present)
+                if missing:
+                    raise RuntimeError(
+                        f"{sample}: missing local production parts {missing} "
+                        f"(expected {sorted(expected)}, found {sorted(present)}); rerun them first"
+                    )
+
         process_samples_map = get_process_sample_map(grouped_outputs.keys(), args.year)
 
         if args.output_format == "parquet":
@@ -272,17 +303,33 @@ if __name__ == "__main__":
         for category in categories:
             logging.info(f"category: {category}")
             category_dir = output_dir / str(category)
+            columns_to_drop = []
 
             if not args.nocutflow:
                 print_header(f"Cutflow")
                 cutflow_df = pd.DataFrame()
                 for process in process_samples_map:
                     cutflow_file = category_dir / f"cutflow_{category}_{process}.csv"
+                    if not cutflow_file.exists():
+                        logging.warning(f"{category}: no cutflow for {process} (zero events)")
+                        continue
                     cutflow_df = pd.concat(
                         [cutflow_df, pd.read_csv(cutflow_file, index_col=[0])], axis=1
                     )
+                if cutflow_df.empty:
+                    logging.warning(f"{category}: no events in any process, no cutflow written")
+                    continue
+                # unweighted event counts (cutflow_raw_<category>_<process>.csv), side by side
+                raw_frames = [
+                    pd.read_csv(category_dir / f"cutflow_raw_{category}_{process}.csv", index_col=[0])
+                    for process in process_samples_map
+                    if (category_dir / f"cutflow_raw_{category}_{process}.csv").exists()
+                ]
+                if raw_frames:
+                    raw_df = pd.concat(raw_frames, axis=1)
+                    raw_df = raw_df.loc[[c for c in event_selection["categories"][category] if c in raw_df.index]]
+                    raw_df.to_csv(f"{category_dir}/cutflow_raw_{category}.csv")
 
-                columns_to_drop = []
                 key_process_map = get_workflow_key_process_map(
                     workflow_config, args.year
                 )
@@ -294,7 +341,7 @@ if __name__ == "__main__":
                 if not args.blind:
                     columns_to_drop += ["Data"]
 
-                total_background = cutflow_df.drop(columns=columns_to_drop).sum(axis=1)
+                total_background = cutflow_df.drop(columns=[c for c in columns_to_drop if c in cutflow_df.columns]).sum(axis=1)
                 cutflow_df["Total Background"] = total_background
 
                 cutflow_index = event_selection["categories"][category]
@@ -435,7 +482,7 @@ if __name__ == "__main__":
                     cutflow_eff.to_csv(category_dir / f"cutflow_eff_{category}.csv")
 
     if args.plot:
-        subprocess.run("python3 analysis/postprocess/build_color_map.py", shell=True)
+        subprocess.run([sys.executable, "analysis/postprocess/build_color_map.py"], check=True)
         if not args.postprocess:
             postprocess_file = output_dir / f"{args.year}_processed_histograms.coffea"
             processed_histograms = load_histogram_file(postprocess_file)

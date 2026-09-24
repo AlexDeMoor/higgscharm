@@ -86,21 +86,13 @@ def fill_histograms_from_parquets(
                 )
             variables_map[variable] = variable_array
 
-        # compute nominal weights
-        # NOTE: weight_negrw / weight_negrw_std are DIAGNOSTIC OUTPUT COLUMNS written
-        # by base.py::_score_negrw, not multiplicative weights - they are deliberately
-        # never added to the weights container. weight_negrw = 2*P+(x)-1 spans -1..+1
-        # and weight_negrw_std is an ensemble std-dev, so folding either into the
-        # nominal product silently destroys the affected samples (DY, V+Jets were
-        # suppressed ~156x). Exclude them here.
+        # compute nominal weights as the product of the partial weight columns
         partial_weights = list(
             set(
                 [
                     w.replace("Up", "").replace("Down", "")
                     for w in sample_df.columns
-                    if w.startswith("weight")
-                    and "nominal" not in w
-                    and "negrw" not in w
+                    if w.startswith("weight") and "nominal" not in w
                 ]
             )
         )
@@ -160,11 +152,17 @@ def save_histograms_by_sample(
     else:
         raise ValueError(f"Unsupported output_format: {output_format}")
 
-    # accumulate metadata (still used for cutflows) and compute lumi weight.
-    # The weight's sumw now comes from the parquet metadata (see get_lumi_weight),
-    # not metadata["sumw"], so a missing per-job .coffea no longer breaks it.
+    # accumulate metadata (cutflows + the pre-selection sumw) and compute the lumi
+    # weight. In parquet mode sumw comes from the sumw_records (see get_lumi_weight);
+    # in coffea mode it is the accumulated metadata["sumw"] of the per-job outputs.
     metadata = accumulate_metadata(grouped_outputs, sample)
-    weight = get_lumi_weight(year, sample, output_dir, categories)
+    weight = get_lumi_weight(
+        year,
+        sample,
+        output_dir,
+        categories,
+        sumw=metadata.get("sumw") if output_format == "coffea" else None,
+    )
 
     # scale histograms by lumi-xsec weight
     scaled_histograms = {

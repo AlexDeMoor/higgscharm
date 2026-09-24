@@ -184,7 +184,7 @@ Muon0Run2024I:
   process: Data
   key: muon
   xsec: None
-Muon0Run2024I:
+Muon0Run2024I_v2:
   era: I
   query: Muon0/Run2024I-MINIv6NANOv15_v2-v1/NANOAOD
   process: Data
@@ -196,7 +196,7 @@ Muon1Run2024I:
   process: Data
   key: muon
   xsec: None
-Muon1Run2024I:
+Muon1Run2024I_v2:
   era: I
   query: Muon1/Run2024I-MINIv6NANOv15_v2-v1/NANOAOD
   process: Data
@@ -208,7 +208,7 @@ MuonEGRun2024I:
   process: Data
   key: muon_electron
   xsec: None
-MuonEGRun2024I:
+MuonEGRun2024I_v2:
   era: I
   query: MuonEG/Run2024I-MINIv6NANOv15_v2-v2/NANOAOD
   process: Data
@@ -220,7 +220,7 @@ EGamma0Run2024I:
   process: Data
   key: electron
   xsec: None
-EGamma0Run2024I:
+EGamma0Run2024I_v2:
   era: I
   query: EGamma0/Run2024I-MINIv6NANOv15_v2-v1/NANOAOD
   process: Data
@@ -232,7 +232,7 @@ EGamma1Run2024I:
   process: Data
   key: electron
   xsec: None
-EGamma1Run2024I:
+EGamma1Run2024I_v2:
   era: I
   query: EGamma1/Run2024I-MINIv6NANOv15_v2-v1/NANOAOD
   process: Data
@@ -255,7 +255,7 @@ DYto2Tau:
   query: DYto2Tau-2Jets_Bin-MLL-50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v7/NANOAODSIM
   process: DYJetsToLL
   key: dy_nlo
-  xsec: null
+  xsec: null   # TO BE SET from XSDB before use (get_lumi_weight raises on null); NOT a DYto2L subset -> do not run together with DYto2L
 TTto2L2Nu:
   era: mc
   query: TTto2L2Nu_TuneCP5_13p6TeV_powheg-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v3/NANOAODSIM
@@ -446,3 +446,24 @@ TTH_Hto2Z:
   process: H(125) 
   key: higgs
   xsec: 0.00312
+# ---------------------------------------------------------------------------------
+# Private Summer24 FullSim productions (NanoAODv15, HLT menu 2024v14), H -> tautau
+# exclusive, no generator filter. xsec = sigma(pp -> H + c/b) x BR(H -> tautau):
+#   cH 4FS: 97.0 fb x 0.0627 = 6.08 fb ; bH 5FS: 720.8 fb x 0.0627 = 45.2 fb
+# (same production cross sections as the H+c/H+b -> WW filesets divided by the WW
+# branching fraction). Files are globbed from EOS by make_signal_filesets.py (`path`).
+# bH tranche0_test (5011 events, independent pilot merge) is excluded on purpose.
+HplusCharm_HtoTauTau:
+  era: signal
+  query: null
+  path: /eos/user/a/ademoor/HcTT/fullsim_Summer24_v1_merged/tranche[12]/*.root
+  process: H+c
+  key: hc_tautau
+  xsec: 0.006082
+HplusBottom_HtoTauTau:
+  era: signal
+  query: null
+  path: /eos/user/a/ademoor/HcTT/bH_fullsim_Summer24_v1_merged/tranche[12]/*.root
+  process: H+b
+  key: hb_tautau
+  xsec: 0.045194

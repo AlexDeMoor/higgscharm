@@ -3,7 +3,7 @@ import awkward as ak
 from typing import Type
 from pathlib import Path
 from coffea.analysis_tools import Weights
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 
 
 def add_pileup_weight(
@@ -29,7 +29,7 @@ def add_pileup_weight(
     """
     # define correction set and goldenJSON file names
     pileup_corr_file = correction_files["pileup"][year]
-    cset = correctionlib.CorrectionSet.from_file(pileup_corr_file)
+    cset = load_correction_set(pileup_corr_file)
 
     year_to_corr = {
         "2016preVFP": "Collisions16_UltraLegacy_goldenJSON",

@@ -1,7 +1,7 @@
 import numpy as np
 import awkward as ak
 from analysis.filesets.utils import get_nano_version
-from analysis.working_points.utils import get_ctag_mask
+from analysis.working_points.utils import get_ctag_mask, get_btag_mask
 
     
 class WorkingPoints:
@@ -20,6 +20,16 @@ class WorkingPoints:
                 events.Electron.mvaFall17V2Iso_WP90
                 if hasattr(events.Electron, "mvaFall17V2Iso_WP90")
                 else events.Electron.mvaIso_WP90
+            ),
+            "wp80noiso": (
+                events.Electron.mvaFall17V2noIso_WP80
+                if hasattr(events.Electron, "mvaFall17V2noIso_WP80")
+                else events.Electron.mvaNoIso_WP80
+            ),
+            "wp90noiso": (
+                events.Electron.mvaFall17V2noIso_WP90
+                if hasattr(events.Electron, "mvaFall17V2noIso_WP90")
+                else events.Electron.mvaNoIso_WP90
             ),
             "fail": events.Electron.cutBased == 0,
             "veto": events.Electron.cutBased == 1,
@@ -241,3 +251,39 @@ class WorkingPoints:
 
     def jet_ctagging(self, events, wp, year):
         return get_ctag_mask(events.Jet, year, wp)
+
+    def jet_btagging(self, events, wp, year):
+        return get_btag_mask(events.Jet, year, wp)
+
+    # -----------------------------------------------------------------
+    # Taus (DeepTau2018v2p5). In NanoAOD v10+ the ID branches store the index of the
+    # tightest working point passed (cumulative), NOT a bitmask: pass WP N <=> value >= N
+    # -----------------------------------------------------------------
+    DEEPTAU_VSJET_WPS = {
+        "VVVLoose": 1, "VVLoose": 2, "VLoose": 3, "Loose": 4,
+        "Medium": 5, "Tight": 6, "VTight": 7, "VVTight": 8,
+    }
+    DEEPTAU_VSE_WPS = dict(DEEPTAU_VSJET_WPS)
+    DEEPTAU_VSMU_WPS = {"VLoose": 1, "Loose": 2, "Medium": 3, "Tight": 4}
+
+    def tau_id_vsjet(self, events, wp):
+        if wp not in self.DEEPTAU_VSJET_WPS:
+            raise ValueError(f"Invalid VSjet WP {wp}. Please specify {list(self.DEEPTAU_VSJET_WPS)}")
+        return events.Tau.idDeepTau2018v2p5VSjet >= self.DEEPTAU_VSJET_WPS[wp]
+
+    def tau_id_vse(self, events, wp):
+        if wp not in self.DEEPTAU_VSE_WPS:
+            raise ValueError(f"Invalid VSe WP {wp}. Please specify {list(self.DEEPTAU_VSE_WPS)}")
+        return events.Tau.idDeepTau2018v2p5VSe >= self.DEEPTAU_VSE_WPS[wp]
+
+    def tau_id_vsmu(self, events, wp):
+        if wp not in self.DEEPTAU_VSMU_WPS:
+            raise ValueError(f"Invalid VSmu WP {wp}. Please specify {list(self.DEEPTAU_VSMU_WPS)}")
+        return events.Tau.idDeepTau2018v2p5VSmu >= self.DEEPTAU_VSMU_WPS[wp]
+
+    def tau_decay_mode(self, events, modes=(0, 1, 10, 11)):
+        """HPS decay-mode mask (default: the modes covered by the TAU POG corrections)"""
+        mask = ak.zeros_like(events.Tau.decayMode, dtype=bool)
+        for dm in modes:
+            mask = mask | (events.Tau.decayMode == dm)
+        return mask

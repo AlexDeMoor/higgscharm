@@ -155,8 +155,8 @@ class CoffeaPlotter:
                 )
             else:
                 key = self.process_era_map[process]
-                if(process=="H+c"):
-                    key="signal"
+                if key not in histogram_info:
+                    histogram_info[key] = {"nominal": {}, "variations": {}}
                 if self.group_by != "process":
                     cat_axis = aux_histogram.axes[self.group_by["name"]]
                     self.category_map = {cat_axis.index(cat): cat for cat in cat_axis}
@@ -393,11 +393,13 @@ class CoffeaPlotter:
                     histogram_info["mc"]["nominal"][p] for p in mc_labels
                 ]
                 mc_colors = [self.color_map[p] for p in mc_labels]
-            else:
+            elif "mc" in histogram_info:
                 nominal_mc_hists = list(histogram_info["mc"]["nominal"].values())
                 for process in histogram_info["mc"]["nominal"]:
                     mc_labels.append(process)
                     mc_colors.append(self.color_map[process])
+            else:
+                nominal_mc_hists = []   # signal-only inputs (handled below)
         else:
             nominal_mc_hists = []
             for cat in histogram_info["categories"]:
@@ -407,6 +409,17 @@ class CoffeaPlotter:
                 labels_map = {v: k for k, v in self.group_by["label"].items()}
                 mc_labels.append(labels_map[self.category_map[cat]])
 
+        if not nominal_mc_hists:
+            # signal-only workflow (no MC processes): use the summed signal histograms as
+            # the reference for axes/limits, draw no stack, no uncertainty band, no ratio
+            nominal_mc_hists = list(histogram_info.get("signal", {}).get("nominal", {}).values())
+            if not nominal_mc_hists:
+                logging.warning(f"nothing to plot for {variable} [{category}]")
+                return
+            signal_only = True
+            add_ratio = False
+        else:
+            signal_only = False
         mc_histogram = accumulate(nominal_mc_hists)
         self.nominal_values = mc_histogram.values()
         self.nominal_variances = mc_histogram.variances()
@@ -415,7 +428,9 @@ class CoffeaPlotter:
         self.widths = mc_histogram.axes.widths[0]
 
         # get variation MC histograms
-        variation_histograms = histogram_info["mc"]["variations"]
+        variation_histograms = (
+            {} if signal_only else histogram_info["mc"]["variations"]
+        )
 
         # get Data histogram
         if "data" not in self.datasets:
@@ -441,18 +456,19 @@ class CoffeaPlotter:
                 figsize=(9, 9),
                 tight_layout=True,
             )
-        mc_hist_args = {
-            "H": nominal_mc_hists,
-            "label": mc_labels,
-            "flow": "none",
-            "ax": ax,
-        }
-        mc_hist_args.update(self.style["mc_hist_kwargs"])
-        if mc_colors:
-            mc_hist_args.update({"color": mc_colors})
-        if (self.workflow == "zzto4l") and ("zz_mass" in variable):
-            mc_hist_args["sort"] = None
-        hep.histplot(**mc_hist_args)
+        if not signal_only:
+            mc_hist_args = {
+                "H": nominal_mc_hists,
+                "label": mc_labels,
+                "flow": "none",
+                "ax": ax,
+            }
+            mc_hist_args.update(self.style["mc_hist_kwargs"])
+            if mc_colors:
+                mc_hist_args.update({"color": mc_colors})
+            if (self.workflow == "zzto4l") and ("zz_mass" in variable):
+                mc_hist_args["sort"] = None
+            hep.histplot(**mc_hist_args)
         if not blind:
             hep.histplot(
                 data_histogram,
@@ -462,13 +478,17 @@ class CoffeaPlotter:
                 **self.style["data_hist_kwargs"],
             )
         if True: #"signal" in self.datasets:
-            signal_scale = 10000
+            signal_scale = 1 if signal_only else 10000
             for signal_process, signal_histogram in histogram_info["signal"][
                 "nominal"
             ].items():
                 hep.histplot(
                     signal_histogram * signal_scale,
-                    label=f"{signal_process} x{signal_scale}",
+                    label=(
+                        signal_process
+                        if signal_scale == 1
+                        else f"{signal_process} x{signal_scale}"
+                    ),
                     color=self.color_map[signal_process],
                     flow="none",
                     ax=ax,
@@ -476,7 +496,8 @@ class CoffeaPlotter:
                 )
 
         # plot uncertainty band
-        self.plot_uncert_band(histogram_info, ax)
+        if not signal_only:
+            self.plot_uncert_band(histogram_info, ax)
 
         # plot ratio
         if add_ratio:

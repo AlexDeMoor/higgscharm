@@ -2,6 +2,7 @@
 # JME recommendations: https://cms-jerc.web.cern.ch/Recommendations/
 # taken from https://github.com/cms-btv-pog/BTVNanoCommissioning/blob/master/src/BTVNanoCommissioning/utils/correction.py
 import copy
+import warnings
 import yaml
 import contextlib
 import correctionlib
@@ -9,7 +10,7 @@ import numpy as np
 import awkward as ak
 import importlib.resources
 from pathlib import Path
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 from analysis.filesets.utils import get_dataset_era, get_nano_version
 from coffea.lookup_tools import extractor
 from coffea.jetmet_tools import JECStack, CorrectedJetsFactory, CorrectedMETFactory
@@ -196,7 +197,10 @@ def get_corrected_jets_coffea(events, year):
     if met_field_key == "PuppiMET":
         nocorrmet = events[met_field_key]
         met = copy.copy(nocorrmet)
-        metinfo = [nocorrmet.pt, nocorrmet.phi, jets.pt, jets.phi, jets.pt_raw]
+        # Type-1 propagation: the nano PuppiMET is already Type-1 corrected with the nano jets,
+        # so the reference is the ORIGINAL nano jet pT (orig_pt), not the raw (uncorrected) one --
+        # using pt_raw would subtract the whole nano correction a second time.
+        metinfo = [nocorrmet.pt, nocorrmet.phi, jets.pt, jets.phi, jets.orig_pt]
         met["pt"], met["phi"] = (
             ak.values_astype(corrected_polar_met(*metinfo).pt, np.float32),
             ak.values_astype(corrected_polar_met(*metinfo).phi, np.float32),
@@ -271,8 +275,8 @@ def get_corrected_jets_correctionlib(events, year):
         "/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/jer_smear.json.gz",
     ]
     for _jersmear_path in cset_jersmear_paths:
-        if Path(_jersmear_path).exists:
-            cset_jersmear = correctionlib.CorrectionSet.from_file(_jersmear_path)
+        if Path(_jersmear_path).exists():
+            cset_jersmear = load_correction_set(_jersmear_path)
             break
     else:
         warnings.warn(
@@ -283,33 +287,18 @@ def get_corrected_jets_correctionlib(events, year):
         cset_jersmear = {"JERSmear": None}
     sf_jersmear = cset_jersmear["JERSmear"]
 
-    cset = correctionlib.CorrectionSet.from_file(correction_files["jerc"][year])
+    cset = load_correction_set(correction_files["jerc"][year])
 
-    for d in jec_params_correctionlib[year].keys():
-        if (
-            np.all(
-                np.char.find(
-                    np.array(list(cset.keys())),
-                    jec_params_correctionlib[year][d],
+    for d, tags in jec_params_correctionlib[year].items():
+        for tag in tags.split():
+            if not any(tag in key for key in cset.keys()):
+                raise KeyError(
+                    f"{d}: JEC/JER tag {tag!r} not found in {correction_files['jerc'][year]} "
+                    f"(available: {sorted(set(k.rsplit('_MC', 1)[0].rsplit('_DATA', 1)[0] for k in cset.keys()))[:8]} ...)"
                 )
-            )
-            == -1
-        ):
-            raise (
-                f"{d} has no JEC map : {jec_params_correctionlib[year][d]} available"
-            )
 
     jecname = ""
     # https://cms-jerc.web.cern.ch/JECUncertaintySources/, currently no recommendation of reduced/full split sources
-    syst_list = [
-        i.split("_")[3]
-        for i in cset.keys()
-        if "MC" in i
-        and "L1" not in i
-        and "L2" not in i
-        and "L3" not in i
-        and i.split("_")[3] != "MC"
-    ]
     if is_mc:
         jecname = jec_params_correctionlib[year]["MC"].split(" ")[0] + "_MC"
         jrname = jec_params_correctionlib[year]["MC"].split(" ")[1] + "_MC"
@@ -385,12 +374,28 @@ def get_corrected_jets_correctionlib(events, year):
     met_field_key = "PuppiMET" if int(get_nano_version(year)) >= 12 else "MET"
     nocorrmet = events[met_field_key]
     met = copy.copy(nocorrmet)
-    metinfo = [nocorrmet.pt, nocorrmet.phi, jets.pt, jets.phi, jets.pt_raw]
+    # Type-1 propagation: the nano PuppiMET is already Type-1 corrected with the nano jets,
+    # so the reference is the ORIGINAL nano jet pT (orig_pt), not the raw (uncorrected) one --
+    # using pt_raw would subtract the whole nano correction a second time.
+    metinfo = [nocorrmet.pt, nocorrmet.phi, jets.pt, jets.phi, jets.orig_pt]
     met["pt"], met["phi"] = (
         ak.values_astype(corrected_polar_met(*metinfo).pt, np.float32),
         ak.values_astype(corrected_polar_met(*metinfo).phi, np.float32),
     )
     met["orig_pt"], met["orig_phi"] = nocorrmet["pt"], nocorrmet["phi"]
+
+    # unclustered-energy variations shipped in NanoAOD (PuppiMET_pt/phiUnclusteredUp/Down)
+    if is_mc and "ptUnclusteredUp" in nocorrmet.fields:
+        unc_up, unc_down = copy.copy(met), copy.copy(met)
+        for var, target in (("Up", unc_up), ("Down", unc_down)):
+            # apply the unclustered shift as a vector offset on top of the re-propagated MET
+            dpx = nocorrmet[f"ptUnclustered{var}"] * np.cos(nocorrmet[f"phiUnclustered{var}"]) - nocorrmet.pt * np.cos(nocorrmet.phi)
+            dpy = nocorrmet[f"ptUnclustered{var}"] * np.sin(nocorrmet[f"phiUnclustered{var}"]) - nocorrmet.pt * np.sin(nocorrmet.phi)
+            px = met.pt * np.cos(met.phi) + dpx
+            py = met.pt * np.sin(met.phi) + dpy
+            target["pt"] = ak.values_astype(np.sqrt(px**2 + py**2), np.float32)
+            target["phi"] = ak.values_astype(np.arctan2(py, px), np.float32)
+        met["MET_UnclusteredEnergy"] = ak.zip({"up": unc_up, "down": unc_down})
 
     # JEC variations
     if is_mc:
@@ -416,14 +421,14 @@ def get_corrected_jets_correctionlib(events, year):
                 nocorrmet.phi,
                 unc_jets[f"JES_jes{var}"]["pt"],
                 jets.phi,
-                jets.pt_raw,
+                jets.orig_pt,
             ).pt
             unc_met[f"JES_jes{var}"]["phi"] = corrected_polar_met(
                 nocorrmet.pt,
                 nocorrmet.phi,
                 unc_jets[f"JES_jes{var}"]["pt"],
                 jets.phi,
-                jets.pt_raw,
+                jets.orig_pt,
             ).phi
 
             jer_sf_input_var = get_corr_inputs(j, jer_sf, var)
@@ -461,14 +466,14 @@ def get_corrected_jets_correctionlib(events, year):
                     nocorrmet.phi,
                     unc_jets[f"JER{var}"]["pt"],
                     jets.phi,
-                    jets.pt_raw,
+                    jets.orig_pt,
                 ).pt
                 unc_met[f"JER{var}"]["phi"] = corrected_polar_met(
                     nocorrmet.pt,
                     nocorrmet.phi,
                     unc_jets[f"JER{var}"]["pt"],
                     jets.phi,
-                    jets.pt_raw,
+                    jets.orig_pt,
                 ).phi
 
         jets["JES_jes"] = ak.zip(
@@ -507,6 +512,9 @@ def apply_jerc_corrections(events, year, shifts, corrections_config):
         corr_func = get_corrected_jets_coffea
 
     jets, met = corr_func(events, year)
+    # the corrected (Type-1) MET is written back to the collection the workflows read:
+    # PuppiMET for Run 3 NanoAOD (v12+), MET for Run 2 (nanov9)
+    met_key = "PuppiMET" if int(get_nano_version(year)) >= 12 else "MET"
 
     if hasattr(events, "genWeight") and corrections_config["object_shifts"]:
         if "JES_jes" in jets.fields and "JES_jes" in met.fields:
@@ -514,14 +522,14 @@ def apply_jerc_corrections(events, year, shifts, corrections_config):
                 (
                     {
                         "Jet": jets.JES_jes.up,
-                        "MET": met.JES_jes.up,
+                        met_key: met.JES_jes.up,
                     },
                     f"CMS_scale_j_{year[:4]}Up",
                 ),
                 (
                     {
                         "Jet": jets.JES_jes.down,
-                        "MET": met.JES_jes.down,
+                        met_key: met.JES_jes.down,
                     },
                     f"CMS_scale_j_{year[:4]}Down",
                 ),
@@ -531,14 +539,14 @@ def apply_jerc_corrections(events, year, shifts, corrections_config):
                 (
                     {
                         "Jet": jets.JER.up,
-                        "MET": met.JER.up,
+                        met_key: met.JER.up,
                     },
                     f"CMS_res_j_{year[:4]}Up",
                 ),
                 (
                     {
                         "Jet": jets.JER.down,
-                        "MET": met.JER.down,
+                        met_key: met.JER.down,
                     },
                     f"CMS_res_j_{year[:4]}Down",
                 ),
@@ -548,18 +556,18 @@ def apply_jerc_corrections(events, year, shifts, corrections_config):
                 (
                     {
                         "Jet": jets,
-                        "MET": met.MET_UnclusteredEnergy.up,
+                        met_key: met.MET_UnclusteredEnergy.up,
                     },
                     f"CMS_met_unclustered_{year[:4]}Up",
                 ),
                 (
                     {
                         "Jet": jets,
-                        "MET": met.MET_UnclusteredEnergy.down,
+                        met_key: met.MET_UnclusteredEnergy.down,
                     },
                     f"CMS_met_unclustered_{year[:4]}Down",
                 ),
             ]
 
-    shifts.insert(0, ({"Jet": jets, "MET": met}, None))
+    shifts.insert(0, ({"Jet": jets, met_key: met}, None))
     return shifts

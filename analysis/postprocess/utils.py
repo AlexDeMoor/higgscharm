@@ -93,21 +93,18 @@ def format_cutflow_with_efficiency(events_df, eff_df):
 
 
 def get_variations_keys(processed_histograms):
-    variations = {}
+    """systematic names (without Up/Down) present in ANY process / histogram"""
+    variations = set()
     for process, histogram_dict in processed_histograms.items():
         if process == "Data":
             continue
-        for feature in histogram_dict:
-            helper_histogram = histogram_dict[feature]
-            variations = [
-                var for var in helper_histogram.axes["variation"] if var != "nominal"
-            ]
-            break
-        break
-    variations = list(
-        set([var.replace("Up", "").replace("Down", "") for var in variations])
-    )
-    return variations
+        for helper_histogram in histogram_dict.values():
+            if "variation" not in helper_histogram.axes.name:
+                continue
+            for var in helper_histogram.axes["variation"]:
+                if var != "nominal":
+                    variations.add(var.replace("Up", "").replace("Down", ""))
+    return sorted(variations)
 
 
 def find_kin_and_axis(processed_histograms, name="multiplicity"):
@@ -241,7 +238,13 @@ def read_parquet_sumw(output_dir, sample, category):
     return total
 
 
-def get_lumi_weight(year, sample, output_dir, categories):
+def get_lumi_weight(year, sample, output_dir, categories, sumw=None):
+    """lumi * xsec / sumw for MC/signal samples (1 for data).
+
+    `sumw` (optional) is the generator sum of weights accumulated from the per-job
+    .coffea metadata (coffea output mode). When it is not given, the parquet
+    sumw_records / shard metadata are read instead (parquet output mode).
+    """
     lumi_file = Path.cwd() / "analysis" / "postprocess" / "luminosity.yaml"
     with open(lumi_file, "r") as f:
         luminosities = yaml.safe_load(f)
@@ -249,10 +252,21 @@ def get_lumi_weight(year, sample, output_dir, categories):
     dataset_config = get_dataset_config(year)
     xsec = dataset_config[sample]["xsec"]
     weight = 1
-    sumw = None
     if dataset_config[sample]["era"] in ["mc", "signal"]:
-        # sumw from the parquet metadata (primary category), not the .coffea
-        sumw = read_parquet_sumw(output_dir, sample, list(categories)[0])
+        if xsec is None:
+            raise ValueError(
+                f"{sample}: no cross section (xsec: null) in the fileset yaml of {year}; "
+                "set it before postprocessing"
+            )
+        if sumw is not None and not sumw > 0:
+            # coffea mode: the accumulated metadata["sumw"] must exist and be positive
+            raise ValueError(
+                f"{sample}: accumulated sumw = {sumw!r} from the .coffea metadata; "
+                "cannot normalise (no valid job output?)"
+            )
+        if sumw is None:
+            # sumw from the parquet metadata (primary category), not the .coffea
+            sumw = read_parquet_sumw(output_dir, sample, list(categories)[0])
         if not sumw:
             # No shards at all => the selection legitimately kept zero events for
             # this sample (jobs finished, .coffea markers present, nothing written).
@@ -279,7 +293,7 @@ def get_lumi_weight(year, sample, output_dir, categories):
 
     logging.info(f"luminosity [1/pb]: {luminosities[year]}")
     logging.info(f"xsec [pb]: {xsec}")
-    logging.info(f"sumw (parquet): {sumw}")
+    logging.info(f"sumw: {sumw}")
     logging.info(f"weight: {weight}")
 
     return weight
@@ -304,6 +318,10 @@ def save_cutflows(metadata, categories, sample, weight, output_dir):
         processed_cutflow = {sample: scaled_cutflow}
         cutflow_file = category_dir / f"cutflow_{category}_{sample}.coffea"
         save(processed_cutflow, cutflow_file)
+        # unweighted event counts (when the processor provides them)
+        if "cutflow_raw" in metadata[category]:
+            raw_file = category_dir / f"cutflow_raw_{category}_{sample}.coffea"
+            save({sample: dict(metadata[category]["cutflow_raw"])}, raw_file)
 
 
 def get_process_dict(output_dir, year, categories):
@@ -475,22 +493,22 @@ def accumulate_and_save_cutflows(process, process_samples_map, output_dir, categ
     """Accumulate cutflows from all samples in a process and save them per category."""
     for category in categories:
         category_dir = Path(f"{output_dir}/{category}")
-        df_total = pd.DataFrame()
+        for prefix in ("cutflow", "cutflow_raw"):
+            df_total = pd.DataFrame()
+            for sample in process_samples_map[process]:
+                cutflow_file = category_dir / f"{prefix}_{category}_{sample}.coffea"
+                if cutflow_file.exists():
+                    df_sample = pd.DataFrame(load(cutflow_file).values())
+                    df_total = pd.concat([df_total, df_sample])
 
-        for sample in process_samples_map[process]:
-            cutflow_file = category_dir / f"cutflow_{category}_{sample}.coffea"
-            if cutflow_file.exists():
-                df_sample = pd.DataFrame(load(cutflow_file).values())
-                df_total = pd.concat([df_total, df_sample])
-
-        if not df_total.empty:
-            cutflow_df = pd.DataFrame(df_total.sum())
-            cutflow_df.columns = [process]
-            cutflow_csv = category_dir / f"cutflow_{category}_{process}.csv"
-            logging.info(
-                f"Saving cutflow for process {process} and category {category}"
-            )
-            cutflow_df.to_csv(cutflow_csv)
+            if not df_total.empty:
+                cutflow_df = pd.DataFrame(df_total.sum())
+                cutflow_df.columns = [process]
+                cutflow_csv = category_dir / f"{prefix}_{category}_{process}.csv"
+                logging.info(
+                    f"Saving {prefix} for process {process} and category {category}"
+                )
+                cutflow_df.to_csv(cutflow_csv)
 
 
 def load_processed_histograms(

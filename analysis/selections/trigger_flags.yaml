@@ -80,9 +80,6 @@
     - Mu23_TrkIsoVVL_Ele12_CaloIdL_TrackIdL_IsoVL_DZ
     - DiMu9_Ele9_CaloIdL_TrackIdL_DZ
     - Mu8_DiEle12_CaloIdL_TrackIdL_DZ
-  MuEle_HWW:
-    - Mu23_TrkIsoVVL_Ele12_CaloIdL_TrackIdL_IsoVL
-    - Mu12_TrkIsoVVL_Ele23_CaloIdL_TrackIdL_IsoVL_DZ
   TriMu:
     - TripleMu_10_5_5_DZ
     - TripleMu_12_10_5
@@ -103,9 +100,6 @@
     - Mu23_TrkIsoVVL_Ele12_CaloIdL_TrackIdL_IsoVL_DZ
     - DiMu9_Ele9_CaloIdL_TrackIdL_DZ
     - Mu8_DiEle12_CaloIdL_TrackIdL_DZ
-  MuEle_HWW:
-    - Mu23_TrkIsoVVL_Ele12_CaloIdL_TrackIdL_IsoVL
-    - Mu12_TrkIsoVVL_Ele23_CaloIdL_TrackIdL_IsoVL_DZ
   TriMu:
     - TripleMu_10_5_5_DZ
     - TripleMu_12_10_5
@@ -114,6 +108,20 @@
     - IsoMu24
   SingleEle:
     - Ele30_WPTight_Gsf
+  # ---- H->tautau (one flag per HLT path) ----
+  # TODO (mu tau_h): the mu-tau cross-trigger flags you want to use / study
+  EleTau_PNet:
+    - Ele24_eta2p1_WPTight_Gsf_PNetTauhPFJet30_Loose_eta2p3_CrossL1
+  EleTau_DeepTau:
+    - Ele24_eta2p1_WPTight_Gsf_LooseDeepTauPFTauHPS30_eta2p1_CrossL1
+  DiTau_PNet:
+    - DoublePNetTauhPFJet30_Medium_L2NN_eta2p3
+  DiTau_DeepTau:
+    - DoubleMediumDeepTauPFTauHPS35_L2NN_eta2p1
+  DiTauJet_DeepTau:
+    - DoubleMediumDeepTauPFTauHPS30_L2NN_eta2p1_PFJet60
+  DiTauJet_PNet:
+    - DoublePNetTauhPFJet26_L2NN_eta2p3_PFJet60
   DiEle:
     - Ele23_Ele12_CaloIdL_TrackIdL_IsoVL
     - DoubleEle25_CaloIdL_MW
@@ -126,9 +134,6 @@
     - Mu23_TrkIsoVVL_Ele12_CaloIdL_TrackIdL_IsoVL_DZ
     - DiMu9_Ele9_CaloIdL_TrackIdL_DZ
     - Mu8_DiEle12_CaloIdL_TrackIdL_DZ
-  MuEle_HWW:
-    - Mu23_TrkIsoVVL_Ele12_CaloIdL_TrackIdL_IsoVL
-    - Mu12_TrkIsoVVL_Ele23_CaloIdL_TrackIdL_IsoVL_DZ
   TriMu:
     - TripleMu_10_5_5_DZ
     - TripleMu_12_10_5

@@ -1,3 +1,4 @@
+import glob
 import json
 import argparse
 import subprocess
@@ -54,13 +55,29 @@ if __name__ == "__main__":
     nano_version = get_nano_version(args.year)
     filesets_dir = Path.cwd() / "analysis" / "filesets"
     fileset_file = filesets_dir / f"fileset_{args.year}_nanov{nano_version}_lxplus.json"
-    with open(fileset_file, "r") as f:
-        built_dataset = json.load(f)
+    built_dataset = {}
+    if fileset_file.exists():
+        with open(fileset_file, "r") as f:
+            built_dataset = json.load(f)
 
     for sample in list(dataset_configs.keys()):
         if dataset_configs[sample]["era"] == "signal":
-            query = dataset_configs[sample]["query"]
-            if len(query.split("/")) != 1:
+            query = dataset_configs[sample].get("query")
+            path = dataset_configs[sample].get("path")
+            if path:
+                # private production on EOS: glob the local path(s) and expose them
+                # through the EOS xrootd endpoint (readable from lxplus and condor)
+                patterns = path if isinstance(path, list) else [path]
+                files = sorted(f for pattern in patterns for f in glob.glob(pattern))
+                if not files:
+                    raise FileNotFoundError(f"no ROOT files found for {sample}: {patterns}")
+                files = [
+                    f"root://eosuser.cern.ch/{f}" if f.startswith("/eos/") else f
+                    for f in files
+                ]
+                print(f"Adding sample {sample} ({len(files)} files from {patterns})")
+                built_dataset[sample] = files
+            elif len(query.split("/")) != 1:
                 # from DAS queries
                 files = get_signal_fileset(query)
                 files = [f"{args.site}/{f}" for f in files]

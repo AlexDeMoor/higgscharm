@@ -1,0 +1,530 @@
+# ==================================================================================
+# H -> tautau + charm: common body shared by htautau_mutau / htautau_etau / htautau_tautau
+# (loaded through `extends: includes/htautau_common`; NOT a runnable workflow).
+#
+# What the channels share: electrons, veto leptons, a baseline tau_h, jets, MET, gen-level
+# objects, the di-tau pair chain (htt_pair -> legs -> trigger_legs -> htt_met_vars), the
+# common event selections and ~120 histograms. tau_h working points: DeepTau2018v2p5 VSjet
+# Medium, VSe VVLoose, VSmu VLoose (2024 TAU POG scale factors exist for all of them).
+# A channel yaml sets `htt_pair.field`, may override objects (an overridden key keeps its
+# place in the build order, new keys are appended) and adds its `hlt_paths`, trigger
+# selections, categories, weights, plotting labels and channel-specific axes.
+# ==================================================================================
+datasets:
+  signal:
+    - hc_tautau
+    - hb_tautau
+object_selection:
+  muons:                     # signal muons: defined by the mu tau_h channel; the other channels
+    field: events.Muon       # only count them (placeholder = the loose veto definition below)
+    cuts:
+      - events.Muon.pt > 10
+      - np.abs(events.Muon.eta) < 2.4
+      - working_points.muon_id(events, 'loose')
+      - events.Muon.pfRelIso04_all < 0.3
+  veto_muons:                # extra-lepton veto: loose ID + loose isolation, NO impact-parameter cuts
+    field: events.Muon
+    cuts:
+      - events.Muon.pt > 10
+      - np.abs(events.Muon.eta) < 2.4
+      - working_points.muon_id(events, 'loose')
+      - events.Muon.pfRelIso04_all < 0.3
+  electrons:
+    field: events.Electron
+    cuts:
+      # two-leg kinematics: Ele24 cross-trigger leg (25, 2.1) OR Ele30 leg (30 = trig_singleele boundary,
+      # inside the EGM Ele30 SF 30-32 GeV bin; electrons_study keeps the trigger-study 31)
+      - ((events.Electron.pt > 25) & (np.abs(events.Electron.eta) < 2.1)) | ((events.Electron.pt > 30) & (np.abs(events.Electron.eta) < 2.5))
+      - working_points.electron_id(events, 'wp90iso')
+      # ECAL barrel/endcap transition (supercluster eta)
+      - ~((np.abs(events.Electron.superclusterEta) > 1.44) & (np.abs(events.Electron.superclusterEta) < 1.57))
+      - np.abs(events.Electron.dxy) < 0.045
+      - np.abs(events.Electron.dz) < 0.2
+  veto_electrons:            # extra-lepton veto: non-isolated MVA WP90 + loose isolation, NO impact-parameter cuts
+    field: events.Electron
+    cuts:
+      - events.Electron.pt > 10
+      - np.abs(events.Electron.eta) < 2.5
+      - working_points.electron_id(events, 'wp90noiso')
+      - events.Electron.pfRelIso03_all < 0.3
+  taus:                      # generic baseline tau_h (a channel may tighten pT / eta)
+    field: events.Tau
+    cuts:
+      - events.Tau.pt > 20
+      - np.abs(events.Tau.eta) < 2.3
+      - working_points.tau_decay_mode(events)
+      - working_points.tau_id_vsjet(events, 'Medium')
+      - working_points.tau_id_vse(events, 'VVLoose')
+      - working_points.tau_id_vsmu(events, 'VLoose')
+      - np.abs(events.Tau.dz) < 0.2
+      - np.abs(events.Tau.charge) == 1
+      - delta_r_higher(events.Tau, objects['veto_muons'], 0.5)
+      - delta_r_higher(events.Tau, objects['veto_electrons'], 0.5)
+  # ---- validation objects: the exact trigger-study denominators (object level only) ----
+  muons_study:               # defined by the mu tau_h channel (placeholder = the loose veto definition)
+    field: events.Muon
+    cuts:
+      - events.Muon.pt > 10
+      - np.abs(events.Muon.eta) < 2.4
+      - working_points.muon_id(events, 'loose')
+      - events.Muon.pfRelIso04_all < 0.3
+  electrons_study:
+    field: events.Electron
+    cuts:
+      - ((events.Electron.pt > 25) & (np.abs(events.Electron.eta) < 2.1)) | ((events.Electron.pt > 31) & (np.abs(events.Electron.eta) < 2.5))
+      - working_points.electron_id(events, 'wp90iso')
+      - ~((np.abs(events.Electron.superclusterEta) > 1.44) & (np.abs(events.Electron.superclusterEta) < 1.57))
+  taus_study:                # generic baseline (a channel may tighten pT / eta)
+    field: events.Tau
+    cuts:
+      - events.Tau.pt > 20
+      - np.abs(events.Tau.eta) < 2.3
+      - working_points.tau_decay_mode(events, (0, 1, 2, 10, 11))
+      - working_points.tau_id_vsjet(events, 'Medium')
+      - working_points.tau_id_vsmu(events, 'Loose')
+      - working_points.tau_id_vse(events, 'Loose')
+  # ---- di-tau pair (best-ranked candidate; opposite sign is an event selection) ----
+  htt_pair:
+    field: select_htt_pair_mutau   # set by each channel (select_htt_pair_<channel>)
+  legs:
+    field: select_htt_legs         # -> l1, l2, htt_taus, htt_leptons, l{1,2}_vs*_tight, <coll>_lead/_sublead
+  trigger_legs:
+    field: select_trigger_legs     # -> l{1,2}_match_<hlt leg> (TrigObj matching), jet_match_ditaujet
+  jets:
+    field: events.Jet
+    cuts:
+      - events.Jet.pt > 20
+      - np.abs(events.Jet.eta) < 2.5
+      - working_points.jet_id(events, year, 'tightlepveto')
+      - delta_r_higher(events.Jet, objects['htt_leptons'], 0.5)
+  cjets:
+    field: events.Jet
+    cuts:
+      - events.Jet.pt > 20
+      - np.abs(events.Jet.eta) < 2.5
+      - working_points.jet_id(events, year, 'tightlepveto')
+      - delta_r_higher(events.Jet, objects['htt_leptons'], 0.5)
+      - working_points.jet_ctagging(events, 'medium', year)
+  bjets:
+    field: events.Jet
+    cuts:
+      - events.Jet.pt > 20
+      - np.abs(events.Jet.eta) < 2.5
+      - working_points.jet_id(events, year, 'tightlepveto')
+      - delta_r_higher(events.Jet, objects['htt_leptons'], 0.5)
+      - working_points.jet_btagging(events, 'medium', year)
+  candidate_cjet:
+    field: select_candidate_cjet
+  met:
+    field: events.PuppiMET         # JEC + TES corrected (correction_manager writes back to PuppiMET)
+  leading_jets:
+    field: select_leading_jets     # -> jet1, jet2, jet3
+  htt_met_vars:
+    field: select_htt_met_vars     # -> higgs_mass_vis, mt_*, higgs_dzeta, higgs_mass_col, dphi_*, ...
+  gen:
+    field: select_gen_htautau      # -> gen_channel, gen_* objects
+  acc:
+    field: select_acceptance_flags # -> in_gen_acc_<channel>
+event_selection:
+  hlt_paths: {}                    # overridden per channel
+  selections:
+    goodvertex: events.PV.npvsGood > 0
+    lumimask: get_lumi_mask(events, year)
+    met_filters: get_metfilters_mask(events, year)
+    # `trigger` (OR of the channel's gated trigger regions) is defined per channel
+    one_pair: ak.num(objects['htt_pair']) >= 1
+    os_pair: ak.fill_none(ak.firsts(objects['htt_pair'].l1.charge * objects['htt_pair'].l2.charge) < 0, False)
+    ss_pair: ak.fill_none(ak.firsts(objects['htt_pair'].l1.charge * objects['htt_pair'].l2.charge) > 0, False)
+    gen_mutau: objects['gen_channel'] == 1
+    gen_etau: objects['gen_channel'] == 2
+    gen_tautau: objects['gen_channel'] == 3
+    # optional analysis-level cuts (not in the base categories)
+    mt_lepton_met_lt70: ak.fill_none(objects['mt_lepton_met'] < 70, False)
+    bveto: ak.num(objects['bjets']) == 0
+    atleast_one_cjet: ak.num(objects['cjets']) > 0
+  categories: {}                   # overridden per channel (a workflow must define at least one)
+corrections:
+  object:
+    - jet
+    - jetveto
+    - muon
+    - electron
+    - tau
+  object_shifts: false
+  tau_es:                          # working points assumed by the tau energy scale (= tau selection)
+    vsjet: Medium
+    vse: VVLoose
+  event_weights:
+    # lepton / tau ID scale factors only in the reco selection categories (the gen-level
+    # and study categories carry no selected objects to correct)
+    object_sf_categories: ["sel_*"]
+    genWeight: true
+    pileupWeight: true
+    partonshowerWeight: true
+    lhepdfWeight: true
+    lhescaleWeight: true
+    nnlopsWeight: false
+    muon: false                    # muon scale factors: set by the channel that selects muons
+    electron:                      # electron scale factors (e tau_h); other channels set `electron: false`
+      - id: wp90iso
+      - reco: true
+      - trigger: false
+    tau:
+      - vsjet: Medium
+      - vse: VVLoose
+      - vsmu: VLoose
+# ---- plotting only (scripts/htautau/*): folder names and variable groups of outputs/plots/ ----
+plotting:
+  category_labels: {}              # overridden per channel: <category>: <numbered folder name>
+  group_labels:                    # folder name of a generic group (channel-specific)
+    lepton: lepton
+  groups:                          # fnmatch patterns on the axis names; order = order in README / index
+    higgs_candidate: ["higgs_*", "dr_higgs_*"]
+    lepton: []                     # overridden per channel (mu_*, ele_*, tau1_*)
+    tau: ["tau_*"]
+    met: ["met_*", "pfmet_*", "genmet_*", "mt_*_met", "dphi_*_met"]
+    jets: ["jet?_*", "cjet_*", "n_jets", "n_cjets", "n_bjets"]
+    gen: ["gen_*", "genjet*", "n_gen_*"]
+    multiplicities: ["n_*"]
+    tau_wp_study: ["*_by_tauwp"]
+histogram_config:
+  add_syst_axis: true
+  add_weight: true
+  fill_variations: false
+  axes:
+    tau_pt: {type: Regular, bins: 60, start: 0, stop: 300, label: '$p_T(\tau_h)$ [GeV]', expression: 'objects[''l2''].pt'}
+    tau_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: $\eta(\tau_h)$, expression: 'objects[''l2''].eta'}
+    tau_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: $\phi(\tau_h)$, expression: 'objects[''l2''].phi'}
+    tau_mass: {type: Regular, bins: 40, start: 0, stop: 2, label: '$m(\tau_h)$ [GeV]', expression: 'objects[''l2''].mass'}
+    tau_dm:
+      type: IntCategory
+      categories: [0, 1, 2, 5, 6, 10, 11]
+      label: $\tau_h$ decay mode
+      expression: objects['l2'].decayMode
+    tau_charge:
+      type: IntCategory
+      categories: [-1, 1]
+      label: $\tau_h$ charge
+      expression: objects['l2'].charge
+    tau_dz: {type: Regular, bins: 50, start: -0.2, stop: 0.2, label: '$\tau_h$ $d_z$ [cm]', expression: 'objects[''l2''].dz'}
+    tau_dxy: {type: Regular, bins: 50, start: -0.1, stop: 0.1, label: '$\tau_h$ $d_{xy}$ [cm]', expression: 'objects[''l2''].dxy'}
+    tau_raw_vsjet: {type: Regular, bins: 50, start: 0, stop: 1, label: $\tau_h$ DeepTau VSjet score, expression: 'objects[''l2''].rawDeepTau2018v2p5VSjet'}
+    tau_raw_vse: {type: Regular, bins: 50, start: 0, stop: 1, label: $\tau_h$ DeepTau VSe score, expression: 'objects[''l2''].rawDeepTau2018v2p5VSe'}
+    tau_raw_vsmu: {type: Regular, bins: 50, start: 0, stop: 1, label: $\tau_h$ DeepTau VSmu score, expression: 'objects[''l2''].rawDeepTau2018v2p5VSmu'}
+    tau_idx_vsjet: {type: Integer, start: 0, stop: 9, label: $\tau_h$ VSjet WP index, expression: 'objects[''l2''].idDeepTau2018v2p5VSjet'}
+    tau_idx_vse: {type: Integer, start: 0, stop: 9, label: $\tau_h$ VSe WP index, expression: 'objects[''l2''].idDeepTau2018v2p5VSe'}
+    tau_idx_vsmu: {type: Integer, start: 0, stop: 5, label: $\tau_h$ VSmu WP index, expression: 'objects[''l2''].idDeepTau2018v2p5VSmu'}
+    tau_raw_pnet_vsjet: {type: Regular, bins: 50, start: 0, stop: 1, label: $\tau_h$ PNet VSjet score, expression: 'objects[''l2''].rawPNetVSjet'}
+    tau_raw_upart_vsjet: {type: Regular, bins: 50, start: 0, stop: 1, label: $\tau_h$ UParT VSjet score, expression: 'objects[''l2''].rawUParTVSjet'}
+    tau_genflav:
+      type: IntCategory
+      categories: [0, 1, 2, 3, 4, 5, 6]
+      label: $\tau_h$ genPartFlav
+      expression: objects['l2'].genPartFlav
+      mc_only: true
+    tau_pt_raw: {type: Regular, bins: 60, start: 0, stop: 300, label: '$p_T(\tau_h)$ before TES [GeV]', expression: 'objects[''l2''].pt_raw'}
+    higgs_mass_vis: {type: Regular, bins: 50, start: 0, stop: 250, label: '$m_{vis}(\tau\tau)$ [GeV]', expression: 'objects[''higgs_mass_vis'']'}
+    higgs_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: '$p_T(\tau\tau)$ [GeV]', expression: 'objects[''higgs_pt'']'}
+    higgs_eta: {type: Regular, bins: 50, start: -5, stop: 5, label: $\eta(\tau\tau)$, expression: 'objects[''higgs_eta'']'}
+    higgs_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: $\phi(\tau\tau)$, expression: 'objects[''higgs_phi'']'}
+    higgs_dr_legs: {type: Regular, bins: 50, start: 0, stop: 5, label: '$\Delta R(\ell, \tau_h)$', expression: 'objects[''higgs_dr_legs'']'}
+    higgs_dphi_legs: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: '$\Delta\phi(\ell, \tau_h)$', expression: 'objects[''higgs_dphi_legs'']'}
+    higgs_deta_legs: {type: Regular, bins: 50, start: -5, stop: 5, label: '$\Delta\eta(\ell, \tau_h)$', expression: 'objects[''higgs_deta_legs'']'}
+    higgs_charge_product:
+      type: IntCategory
+      categories: [-1, 1]
+      label: $q(\ell) \times q(\tau_h)$
+      expression: objects['higgs_charge_product']
+    higgs_mass_col: {type: Regular, bins: 50, start: 0, stop: 400, label: '$m_{col}(\tau\tau)$ [GeV]', expression: 'objects[''higgs_mass_col'']'}
+    higgs_mass_col_valid: {type: Boolean, label: '$m_{col}$ physical ($0 < x_{1,2} \leq 1$)', expression: 'objects[''higgs_mass_col_valid'']'}
+    mt_lepton_met: {type: Regular, bins: 50, start: 0, stop: 250, label: '$m_T(\ell, p_T^{miss})$ [GeV]', expression: 'objects[''mt_lepton_met'']'}
+    mt_tau_met: {type: Regular, bins: 50, start: 0, stop: 250, label: '$m_T(\tau_h, p_T^{miss})$ [GeV]', expression: 'objects[''mt_tau_met'']'}
+    higgs_mt_legs: {type: Regular, bins: 50, start: 0, stop: 250, label: '$m_T(\ell, \tau_h)$ [GeV]', expression: 'objects[''higgs_mt_legs'']'}
+    higgs_mt_tot: {type: Regular, bins: 50, start: 0, stop: 400, label: '$m_T^{tot}$ [GeV]', expression: 'objects[''higgs_mt_tot'']'}
+    higgs_dzeta: {type: Regular, bins: 50, start: -150, stop: 100, label: '$D_\zeta$ [GeV]', expression: 'objects[''higgs_dzeta'']'}
+    higgs_met_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: '$p_T(\tau\tau + p_T^{miss})$ [GeV]', expression: 'objects[''higgs_met_pt'']'}
+    met_pt: {type: Regular, bins: 50, start: 0, stop: 250, label: 'Puppi $p_T^{miss}$ [GeV]', expression: 'objects[''met''].pt'}
+    met_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: 'Puppi $\phi(p_T^{miss})$', expression: 'objects[''met''].phi'}
+    met_sumEt: {type: Regular, bins: 50, start: 0, stop: 2500, label: 'Puppi $\sum E_T$ [GeV]', expression: 'objects[''met''].sumEt'}
+    met_significance: {type: Regular, bins: 50, start: 0, stop: 100, label: 'Puppi $p_T^{miss}$ significance', expression: 'objects[''met''].significance'}
+    pfmet_pt: {type: Regular, bins: 50, start: 0, stop: 250, label: 'PF $p_T^{miss}$ [GeV]', expression: events.PFMET.pt}
+    pfmet_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: 'PF $\phi(p_T^{miss})$', expression: events.PFMET.phi}
+    genmet_pt: {type: Regular, bins: 50, start: 0, stop: 250, label: 'gen $p_T^{miss}$ [GeV]', expression: 'objects[''gen_met''].pt', mc_only: true}
+    dphi_lepton_met: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: '$\Delta\phi(\ell, p_T^{miss})$', expression: 'objects[''dphi_lepton_met'']'}
+    dphi_tau_met: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: '$\Delta\phi(\tau_h, p_T^{miss})$', expression: 'objects[''dphi_tau_met'']'}
+    dphi_higgs_met: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: '$\Delta\phi(\tau\tau, p_T^{miss})$', expression: 'objects[''dphi_higgs_met'']'}
+    jet1_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'jet 1 $p_T$ [GeV]', expression: 'objects[''jet1''].pt'}
+    jet1_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: jet 1 $\eta$, expression: 'objects[''jet1''].eta'}
+    jet1_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: jet 1 $\phi$, expression: 'objects[''jet1''].phi'}
+    jet1_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: jet 1 hadron flavour
+      expression: objects['jet1'].hadronFlavour
+      mc_only: true
+    jet1_partonflavour:
+      type: IntCategory
+      categories: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 21]
+      label: jet 1 parton flavour
+      expression: objects['jet1'].partonFlavour
+      mc_only: true
+    jet1_cvsl_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 1 CvL (UParT), expression: 'objects[''jet1''].btagUParTAK4CvL'}
+    jet1_cvsb_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 1 CvB (UParT), expression: 'objects[''jet1''].btagUParTAK4CvB'}
+    jet1_b_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 1 B (UParT), expression: 'objects[''jet1''].btagUParTAK4B'}
+    jet1_cvsl_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 1 CvL (PNet), expression: 'objects[''jet1''].btagPNetCvL'}
+    jet1_cvsb_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 1 CvB (PNet), expression: 'objects[''jet1''].btagPNetCvB'}
+    jet1_b_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 1 B (PNet), expression: 'objects[''jet1''].btagPNetB'}
+    jet2_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'jet 2 $p_T$ [GeV]', expression: 'objects[''jet2''].pt'}
+    jet2_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: jet 2 $\eta$, expression: 'objects[''jet2''].eta'}
+    jet2_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: jet 2 $\phi$, expression: 'objects[''jet2''].phi'}
+    jet2_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: jet 2 hadron flavour
+      expression: objects['jet2'].hadronFlavour
+      mc_only: true
+    jet2_partonflavour:
+      type: IntCategory
+      categories: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 21]
+      label: jet 2 parton flavour
+      expression: objects['jet2'].partonFlavour
+      mc_only: true
+    jet2_cvsl_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 2 CvL (UParT), expression: 'objects[''jet2''].btagUParTAK4CvL'}
+    jet2_cvsb_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 2 CvB (UParT), expression: 'objects[''jet2''].btagUParTAK4CvB'}
+    jet2_b_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 2 B (UParT), expression: 'objects[''jet2''].btagUParTAK4B'}
+    jet2_cvsl_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 2 CvL (PNet), expression: 'objects[''jet2''].btagPNetCvL'}
+    jet2_cvsb_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 2 CvB (PNet), expression: 'objects[''jet2''].btagPNetCvB'}
+    jet2_b_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 2 B (PNet), expression: 'objects[''jet2''].btagPNetB'}
+    jet3_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'jet 3 $p_T$ [GeV]', expression: 'objects[''jet3''].pt'}
+    jet3_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: jet 3 $\eta$, expression: 'objects[''jet3''].eta'}
+    jet3_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: jet 3 $\phi$, expression: 'objects[''jet3''].phi'}
+    jet3_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: jet 3 hadron flavour
+      expression: objects['jet3'].hadronFlavour
+      mc_only: true
+    jet3_partonflavour:
+      type: IntCategory
+      categories: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 21]
+      label: jet 3 parton flavour
+      expression: objects['jet3'].partonFlavour
+      mc_only: true
+    jet3_cvsl_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 3 CvL (UParT), expression: 'objects[''jet3''].btagUParTAK4CvL'}
+    jet3_cvsb_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 3 CvB (UParT), expression: 'objects[''jet3''].btagUParTAK4CvB'}
+    jet3_b_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 3 B (UParT), expression: 'objects[''jet3''].btagUParTAK4B'}
+    jet3_cvsl_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 3 CvL (PNet), expression: 'objects[''jet3''].btagPNetCvL'}
+    jet3_cvsb_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 3 CvB (PNet), expression: 'objects[''jet3''].btagPNetCvB'}
+    jet3_b_pnet: {type: Regular, bins: 50, start: 0, stop: 1, label: jet 3 B (PNet), expression: 'objects[''jet3''].btagPNetB'}
+    n_jets: {type: Integer, start: 0, stop: 12, label: '$N_{jets}$', expression: 'ak.num(objects[''jets''])'}
+    n_cjets: {type: Integer, start: 0, stop: 6, label: '$N_{c-tagged\ jets}$ (UParT M)', expression: 'ak.num(objects[''cjets''])'}
+    n_bjets: {type: Integer, start: 0, stop: 6, label: '$N_{b-tagged\ jets}$ (UParT M)', expression: 'ak.num(objects[''bjets''])'}
+    n_taus: {type: Integer, start: 0, stop: 6, label: '$N_{\tau_h}$', expression: 'ak.num(objects[''taus''])'}
+    n_muons: {type: Integer, start: 0, stop: 4, label: '$N_{\mu}$', expression: 'ak.num(objects[''muons''])'}
+    n_electrons: {type: Integer, start: 0, stop: 4, label: '$N_{e}$', expression: 'ak.num(objects[''electrons''])'}
+    n_veto_muons: {type: Integer, start: 0, stop: 4, label: '$N_{\mu}$ (loose)', expression: 'ak.num(objects[''veto_muons''])'}
+    n_veto_electrons: {type: Integer, start: 0, stop: 4, label: '$N_{e}$ (loose)', expression: 'ak.num(objects[''veto_electrons''])'}
+    n_sv: {type: Integer, start: 0, stop: 15, label: '$N_{SV}$', expression: ak.num(events.SV)}
+    n_pv: {type: Integer, start: 0, stop: 80, label: '$N_{PV}^{good}$', expression: events.PV.npvsGood}
+    cjet_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'c-jet candidate $p_T$ [GeV]', expression: 'ak.firsts(objects[''candidate_cjet''].pt)'}
+    cjet_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: c-jet candidate $\eta$, expression: 'ak.firsts(objects[''candidate_cjet''].eta)'}
+    cjet_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: c-jet candidate hadron flavour
+      expression: ak.firsts(objects['candidate_cjet'].hadronFlavour)
+      mc_only: true
+    cjet_cvsl_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: c-jet candidate CvL (UParT), expression: 'ak.firsts(objects[''candidate_cjet''].btagUParTAK4CvL)'}
+    cjet_cvsb_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: c-jet candidate CvB (UParT), expression: 'ak.firsts(objects[''candidate_cjet''].btagUParTAK4CvB)'}
+    dr_higgs_cjet: {type: Regular, bins: 50, start: 0, stop: 6, label: '$\Delta R(\tau\tau, c\text{-jet})$', expression: 'ak.firsts(objects[''candidate_cjet_lorentzvector'']).delta_r(objects[''l1''] + objects[''l2''])'}
+    dr_higgs_jet1: {type: Regular, bins: 50, start: 0, stop: 6, label: '$\Delta R(\tau\tau, j_1)$', expression: 'objects[''jet1''].delta_r(objects[''l1''] + objects[''l2''])'}
+    gen_channel:
+      type: IntCategory
+      categories: [0, 1, 2, 3, 4]
+      label: gen $\tau\tau$ decay channel
+      expression: objects['gen_channel']
+      mc_only: true
+    gen_higgs_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'gen $p_T(H)$ [GeV]', expression: 'ak.firsts(objects[''gen_higgs''].pt)', mc_only: true}
+    gen_higgs_eta: {type: Regular, bins: 50, start: -5, stop: 5, label: gen $\eta(H)$, expression: 'ak.firsts(objects[''gen_higgs''].eta)', mc_only: true}
+    gen_lepton_pt: {type: Regular, bins: 60, start: 0, stop: 300, label: 'gen $p_T(\ell \leftarrow \tau)$ [GeV]', expression: 'objects[''gen_lepton''].pt', mc_only: true}
+    gen_lepton_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: gen $\eta(\ell \leftarrow \tau)$, expression: 'objects[''gen_lepton''].eta', mc_only: true}
+    gen_vistau1_pt: {type: Regular, bins: 60, start: 0, stop: 300, label: 'gen $p_T(\tau_h^{vis,1})$ [GeV]', expression: 'objects[''gen_vistau1''].pt', mc_only: true}
+    gen_vistau1_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: 'gen $\eta(\tau_h^{vis,1})$', expression: 'objects[''gen_vistau1''].eta', mc_only: true}
+    gen_vistau1_dm:
+      type: IntCategory
+      categories: [0, 1, 2, 10, 11, 15]
+      label: gen $\tau_h^{vis,1}$ decay mode
+      expression: objects['gen_vistau1'].status
+      mc_only: true
+    gen_vistau2_pt: {type: Regular, bins: 60, start: 0, stop: 300, label: 'gen $p_T(\tau_h^{vis,2})$ [GeV]', expression: 'objects[''gen_vistau2''].pt', mc_only: true}
+    gen_vistau2_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: 'gen $\eta(\tau_h^{vis,2})$', expression: 'objects[''gen_vistau2''].eta', mc_only: true}
+    n_gen_vistaus: {type: Integer, start: 0, stop: 4, label: '$N_{\tau_h}^{gen}$', expression: 'ak.num(objects[''gen_vistaus''])', mc_only: true}
+    n_gen_leptons: {type: Integer, start: 0, stop: 4, label: '$N_{\ell \leftarrow \tau}^{gen}$', expression: 'ak.num(objects[''gen_leptons''])', mc_only: true}
+    gen_higgs_mass_vis: {type: Regular, bins: 50, start: 0, stop: 250, label: 'gen $m_{vis}(\tau\tau)$ [GeV]', expression: 'ak.fill_none(objects[''gen_higgs_mass_vis''], np.nan)', mc_only: true}
+    gen_higgs_pt_vis: {type: Regular, bins: 50, start: 0, stop: 300, label: 'gen $p_T^{vis}(\tau\tau)$ [GeV]', expression: 'ak.fill_none(objects[''gen_higgs_pt_vis''], np.nan)', mc_only: true}
+    gen_higgs_dr_legs: {type: Regular, bins: 50, start: 0, stop: 5, label: gen $\Delta R$(visible legs), expression: 'ak.fill_none(objects[''gen_higgs_dr_legs''], np.nan)', mc_only: true}
+    gen_hfquark_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'gen $p_T(c/b)$ [GeV]', expression: 'ak.firsts(objects[''gen_hfquarks''].pt)', mc_only: true}
+    gen_hfquark_eta: {type: Regular, bins: 50, start: -5, stop: 5, label: gen $\eta(c/b)$, expression: 'ak.firsts(objects[''gen_hfquarks''].eta)', mc_only: true}
+    genjet1_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'gen jet 1 $p_T$ [GeV]', expression: 'objects[''genjet1''].pt'}
+    genjet1_eta: {type: Regular, bins: 50, start: -5, stop: 5, label: gen jet 1 $\eta$, expression: 'objects[''genjet1''].eta'}
+    genjet1_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: gen jet 1 hadron flavour
+      expression: objects['genjet1'].hadronFlavour
+    genjet2_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'gen jet 2 $p_T$ [GeV]', expression: 'objects[''genjet2''].pt'}
+    genjet2_eta: {type: Regular, bins: 50, start: -5, stop: 5, label: gen jet 2 $\eta$, expression: 'objects[''genjet2''].eta'}
+    genjet2_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: gen jet 2 hadron flavour
+      expression: objects['genjet2'].hadronFlavour
+    genjet3_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'gen jet 3 $p_T$ [GeV]', expression: 'objects[''genjet3''].pt'}
+    genjet3_eta: {type: Regular, bins: 50, start: -5, stop: 5, label: gen jet 3 $\eta$, expression: 'objects[''genjet3''].eta'}
+    genjet3_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: gen jet 3 hadron flavour
+      expression: objects['genjet3'].hadronFlavour
+    pass_trigger: {type: Boolean, label: passes the gated trigger selection, expression: 'selection_masks[''trigger'']'}
+    l2_vse_tight: {type: Boolean, label: $\tau_h$ passes VSe Tight, expression: 'objects[''l2_vse_tight'']'}
+    l2_vsmu_tight: {type: Boolean, label: $\tau_h$ passes VSmu Tight, expression: 'objects[''l2_vsmu_tight'']'}
+    l2_vsjet_tight: {type: Boolean, label: $\tau_h$ passes VSjet Tight, expression: 'objects[''l2_vsjet_tight'']'}
+    higgs_mass_vis_wp: {type: Regular, bins: 25, start: 0, stop: 250, label: '$m_{vis}(\tau\tau)$ [GeV]', expression: 'objects[''higgs_mass_vis'']'}
+    higgs_pt_wp: {type: Regular, bins: 25, start: 0, stop: 300, label: '$p_T(\tau\tau)$ [GeV]', expression: 'objects[''higgs_pt'']'}
+    tau_pt_wp: {type: Regular, bins: 30, start: 0, stop: 300, label: '$p_T(\tau_h)$ [GeV]', expression: 'objects[''l2''].pt'}
+    mt_lepton_met_wp: {type: Regular, bins: 25, start: 0, stop: 250, label: '$m_T(\ell, p_T^{miss})$ [GeV]', expression: 'objects[''mt_lepton_met'']'}
+    higgs_dzeta_wp: {type: Regular, bins: 25, start: -150, stop: 100, label: '$D_\zeta$ [GeV]', expression: 'objects[''higgs_dzeta'']'}
+    higgs_mt_tot_wp: {type: Regular, bins: 25, start: 0, stop: 400, label: '$m_T^{tot}$ [GeV]', expression: 'objects[''higgs_mt_tot'']'}
+    higgs_mass_col_wp: {type: Regular, bins: 25, start: 0, stop: 400, label: '$m_{col}(\tau\tau)$ [GeV]', expression: 'objects[''higgs_mass_col'']'}
+    turnon_jet1_pt:
+      type: Variable
+      edges: [0, 20, 30, 40, 50, 60, 70, 80, 100, 120, 150, 200, 300]
+      label: leading jet $p_T$ [GeV]
+      expression: ak.fill_none(objects['jet1'].pt, np.nan)
+    turnon_met_pt:
+      type: Variable
+      edges: [0, 20, 40, 60, 80, 100, 120, 150, 200, 300]
+      label: Puppi $p_T^{miss}$ [GeV]
+      expression: objects['met'].pt
+  layout:
+    tau_pt: [tau_pt]
+    tau_eta: [tau_eta]
+    tau_phi: [tau_phi]
+    tau_mass: [tau_mass]
+    tau_dm: [tau_dm]
+    tau_charge: [tau_charge]
+    tau_dz: [tau_dz]
+    tau_dxy: [tau_dxy]
+    tau_raw_vsjet: [tau_raw_vsjet]
+    tau_raw_vse: [tau_raw_vse]
+    tau_raw_vsmu: [tau_raw_vsmu]
+    tau_idx_vsjet: [tau_idx_vsjet]
+    tau_idx_vse: [tau_idx_vse]
+    tau_idx_vsmu: [tau_idx_vsmu]
+    tau_raw_pnet_vsjet: [tau_raw_pnet_vsjet]
+    tau_raw_upart_vsjet: [tau_raw_upart_vsjet]
+    tau_genflav: [tau_genflav]
+    tau_pt_raw: [tau_pt_raw]
+    higgs_mass_vis: [higgs_mass_vis]
+    higgs_pt: [higgs_pt]
+    higgs_eta: [higgs_eta]
+    higgs_phi: [higgs_phi]
+    higgs_dr_legs: [higgs_dr_legs]
+    higgs_dphi_legs: [higgs_dphi_legs]
+    higgs_deta_legs: [higgs_deta_legs]
+    higgs_charge_product: [higgs_charge_product]
+    higgs_mass_col: [higgs_mass_col]
+    higgs_mass_col_valid: [higgs_mass_col_valid]
+    mt_lepton_met: [mt_lepton_met]
+    mt_tau_met: [mt_tau_met]
+    higgs_mt_legs: [higgs_mt_legs]
+    higgs_mt_tot: [higgs_mt_tot]
+    higgs_dzeta: [higgs_dzeta]
+    higgs_met_pt: [higgs_met_pt]
+    met_pt: [met_pt]
+    met_phi: [met_phi]
+    met_sumEt: [met_sumEt]
+    met_significance: [met_significance]
+    pfmet_pt: [pfmet_pt]
+    pfmet_phi: [pfmet_phi]
+    genmet_pt: [genmet_pt]
+    dphi_lepton_met: [dphi_lepton_met]
+    dphi_tau_met: [dphi_tau_met]
+    dphi_higgs_met: [dphi_higgs_met]
+    jet1_pt: [jet1_pt]
+    jet1_eta: [jet1_eta]
+    jet1_phi: [jet1_phi]
+    jet1_hadronflavour: [jet1_hadronflavour]
+    jet1_partonflavour: [jet1_partonflavour]
+    jet1_cvsl_upart: [jet1_cvsl_upart]
+    jet1_cvsb_upart: [jet1_cvsb_upart]
+    jet1_b_upart: [jet1_b_upart]
+    jet1_cvsl_pnet: [jet1_cvsl_pnet]
+    jet1_cvsb_pnet: [jet1_cvsb_pnet]
+    jet1_b_pnet: [jet1_b_pnet]
+    jet2_pt: [jet2_pt]
+    jet2_eta: [jet2_eta]
+    jet2_phi: [jet2_phi]
+    jet2_hadronflavour: [jet2_hadronflavour]
+    jet2_partonflavour: [jet2_partonflavour]
+    jet2_cvsl_upart: [jet2_cvsl_upart]
+    jet2_cvsb_upart: [jet2_cvsb_upart]
+    jet2_b_upart: [jet2_b_upart]
+    jet2_cvsl_pnet: [jet2_cvsl_pnet]
+    jet2_cvsb_pnet: [jet2_cvsb_pnet]
+    jet2_b_pnet: [jet2_b_pnet]
+    jet3_pt: [jet3_pt]
+    jet3_eta: [jet3_eta]
+    jet3_phi: [jet3_phi]
+    jet3_hadronflavour: [jet3_hadronflavour]
+    jet3_partonflavour: [jet3_partonflavour]
+    jet3_cvsl_upart: [jet3_cvsl_upart]
+    jet3_cvsb_upart: [jet3_cvsb_upart]
+    jet3_b_upart: [jet3_b_upart]
+    jet3_cvsl_pnet: [jet3_cvsl_pnet]
+    jet3_cvsb_pnet: [jet3_cvsb_pnet]
+    jet3_b_pnet: [jet3_b_pnet]
+    n_jets: [n_jets]
+    n_cjets: [n_cjets]
+    n_bjets: [n_bjets]
+    n_taus: [n_taus]
+    n_muons: [n_muons]
+    n_electrons: [n_electrons]
+    n_veto_muons: [n_veto_muons]
+    n_veto_electrons: [n_veto_electrons]
+    n_sv: [n_sv]
+    n_pv: [n_pv]
+    cjet_pt: [cjet_pt]
+    cjet_eta: [cjet_eta]
+    cjet_hadronflavour: [cjet_hadronflavour]
+    cjet_cvsl_upart: [cjet_cvsl_upart]
+    cjet_cvsb_upart: [cjet_cvsb_upart]
+    dr_higgs_cjet: [dr_higgs_cjet]
+    dr_higgs_jet1: [dr_higgs_jet1]
+    gen_channel: [gen_channel]
+    gen_higgs_pt: [gen_higgs_pt]
+    gen_higgs_eta: [gen_higgs_eta]
+    gen_lepton_pt: [gen_lepton_pt]
+    gen_lepton_eta: [gen_lepton_eta]
+    gen_vistau1_pt: [gen_vistau1_pt]
+    gen_vistau1_eta: [gen_vistau1_eta]
+    gen_vistau1_dm: [gen_vistau1_dm]
+    gen_vistau2_pt: [gen_vistau2_pt]
+    gen_vistau2_eta: [gen_vistau2_eta]
+    n_gen_vistaus: [n_gen_vistaus]
+    n_gen_leptons: [n_gen_leptons]
+    gen_higgs_mass_vis: [gen_higgs_mass_vis]
+    gen_higgs_pt_vis: [gen_higgs_pt_vis]
+    gen_higgs_dr_legs: [gen_higgs_dr_legs]
+    gen_hfquark_pt: [gen_hfquark_pt]
+    gen_hfquark_eta: [gen_hfquark_eta]
+    genjet1_pt: [genjet1_pt]
+    genjet1_eta: [genjet1_eta]
+    genjet1_hadronflavour: [genjet1_hadronflavour]
+    genjet2_pt: [genjet2_pt]
+    genjet2_eta: [genjet2_eta]
+    genjet2_hadronflavour: [genjet2_hadronflavour]
+    genjet3_pt: [genjet3_pt]
+    genjet3_eta: [genjet3_eta]
+    genjet3_hadronflavour: [genjet3_hadronflavour]

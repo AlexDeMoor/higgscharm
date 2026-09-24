@@ -1,3 +1,4 @@
+import warnings
 import correctionlib
 import numpy as np
 import awkward as ak
@@ -6,7 +7,7 @@ from coffea.analysis_tools import Weights
 from analysis.filesets.utils import get_nano_version
 from analysis.selections.event_selections import get_trigger_mask
 from analysis.corrections.utils import unflat_sf
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 
 
 class ElectronWeights:
@@ -47,12 +48,19 @@ class ElectronWeights:
         self.electrons_counts = ak.num(self.electrons)
 
         # get correction set for Run2/Run3 ID and Reco
-        self.cset_id = correctionlib.CorrectionSet.from_file(
+        self.cset_id = load_correction_set(
             correction_files["electron_id"][year]
         )
-        self.cset_reco = correctionlib.CorrectionSet.from_file(
+        self.cset_reco = load_correction_set(
             correction_files["electron_reco"][year]
         )
+
+    @staticmethod
+    def sc_eta(electrons):
+        """supercluster eta: native branch in nanov15, eta + deltaEtaSC otherwise"""
+        if "superclusterEta" in electrons.fields:
+            return electrons.superclusterEta
+        return electrons.eta + electrons.deltaEtaSC
 
     def add_id_weights(self, id_wp):
         """
@@ -136,26 +144,70 @@ class ElectronWeights:
                 weight=nominal_weights,
             )
 
+    # EGM single-electron trigger SFs (electronHlt.json.gz, Run 3)
+    SINGLE_ELECTRON_TRIGGER_PATHS = {"wp80iso": "HLT_SF_Ele30_MVAiso80ID", "wp90iso": "HLT_SF_Ele30_MVAiso90ID"}
+    SINGLE_ELECTRON_TRIGGER_YEARS = {"2024": "2024Prompt"}
+    SINGLE_ELECTRON_TRIGGER_PT_MIN = 25.0   # lower edge of the EGM Ele30 binning (flow=error)
+    _clamp_warned = set()   # (path, year) already warned about, once per process
+
+    def add_region_trigger_weights(self, region_mask, id_wp, path="Ele30"):
+        """Ele30 scale factor on the leading selected electron of the events in `region_mask`
+        (a single-electron trigger region); every other event gets 1. Supercluster eta,
+        pT clamped to the 25 GeV lower edge."""
+        if path != "Ele30":
+            raise ValueError(f"no electron trigger SF for path {path!r} (only Ele30)")
+        if id_wp not in self.SINGLE_ELECTRON_TRIGGER_PATHS:
+            raise ValueError(f"no Ele30 SF for electron id {id_wp!r}")
+        if self.year not in self.SINGLE_ELECTRON_TRIGGER_YEARS:
+            raise ValueError(f"region-aware Ele30 SFs are only wired for {list(self.SINGLE_ELECTRON_TRIGGER_YEARS)}")
+        correction = load_correction_set(correction_files["electron_hlt"][self.year])["Electron-HLT-SF"]
+        region_mask = np.asarray(region_mask, dtype=bool)
+        leading = ak.firsts(self.electrons[ak.argsort(self.electrons.pt, ascending=False)])
+        if (region_mask & ak.to_numpy(ak.is_none(leading))).any():
+            raise ValueError("electron trigger region contains events without a selected electron")
+        pt = ak.to_numpy(ak.fill_none(leading.pt, 35.0)).astype(np.float64)
+        sc_eta = ak.to_numpy(ak.fill_none(self.sc_eta(leading), 0.0)).astype(np.float64)
+        below = region_mask & (pt < self.SINGLE_ELECTRON_TRIGGER_PT_MIN)
+        if below.any() and (path, self.year) not in ElectronWeights._clamp_warned:
+            ElectronWeights._clamp_warned.add((path, self.year))
+            warnings.warn(
+                f"{below.sum()} electrons in the {path} trigger region below "
+                f"{self.SINGLE_ELECTRON_TRIGGER_PT_MIN} GeV: SF evaluated at the edge",
+                RuntimeWarning,
+            )
+        pt = np.maximum(pt, self.SINGLE_ELECTRON_TRIGGER_PT_MIN)
+        year = self.SINGLE_ELECTRON_TRIGGER_YEARS[self.year]
+        hlt_path = self.SINGLE_ELECTRON_TRIGGER_PATHS[id_wp]
+
+        def sf(valtype):
+            return np.where(region_mask, correction.evaluate(year, valtype, hlt_path, sc_eta, pt), 1.0)
+
+        name = f"CMS_eff_e_trigger_{path}_{self.year[:4]}"
+        if self.shift is None:
+            self.weights.add(name=name, weight=sf("sf"), weightUp=sf("sfup"), weightDown=sf("sfdown"))
+        else:
+            self.weights.add(name=name, weight=sf("sf"))
+
     def get_id_weights_run3(self, syst, id_wp):
         """Compute electron ID weights for Run3 datasets"""
         # get electrons that pass the id wp, and within SF binning
+        sc_eta = self.sc_eta(self.flat_electrons)
         if self.nano_version != "15":
             electron_pt_mask = self.flat_electrons.pt > 10.0
-            electron_eta_mask = ak.ones_like(electron_pt_mask, dtype=bool)
+            electron_eta_mask = np.abs(sc_eta) < 2.5
         else:
             electron_pt_mask = (self.flat_electrons.pt > 20.0) & (
                 self.flat_electrons.pt < 1000.0
             )
-            electron_eta_mask = (
-                np.abs(self.flat_electrons.eta + self.flat_electrons.deltaEtaSC) < 2.5
-            )
+            electron_eta_mask = np.abs(sc_eta) < 2.5
 
         in_electron_mask = electron_pt_mask & electron_eta_mask
         in_electrons = self.flat_electrons.mask[in_electron_mask]
 
-        # get electrons pT and abseta (replace None values with some 'in-limit' value)
+        # get electrons pT and supercluster eta (the EGM SF maps are binned in SC eta;
+        # replace None values with some 'in-limit' value, clip to the map boundary)
         electron_pt = ak.fill_none(in_electrons.pt, 20.0)
-        electron_eta = ak.fill_none(in_electrons.eta, 0)
+        electron_eta = np.clip(ak.fill_none(self.sc_eta(in_electrons), 0), -2.4999, 2.4999)
         electron_phi = ak.fill_none(in_electrons.phi, 0)
 
         year_map = {
@@ -220,17 +272,20 @@ class ElectronWeights:
             & (self.flat_electrons.pt < 75.0),
             "RecoAbove75": self.flat_electrons.pt > 75,
         }
-        in_electrons_mask = electron_pt_mask[reco_range]
+        in_electrons_mask = electron_pt_mask[reco_range] & (
+            np.abs(self.sc_eta(self.flat_electrons)) < 2.5
+        )
         in_electrons = self.flat_electrons.mask[in_electrons_mask]
 
-        # get electrons pT and abseta (replace None values with some 'in-limit' value)
+        # get electrons pT and supercluster eta (replace None values with some
+        # 'in-limit' value, clip to the map boundary)
         electron_pt_limits = {
             "RecoBelow20": 15,
             "Reco20to75": 30,
             "RecoAbove75": 80,
         }
         electron_pt = ak.fill_none(in_electrons.pt, electron_pt_limits[reco_range])
-        electron_eta = ak.fill_none(in_electrons.eta, 0)
+        electron_eta = np.clip(ak.fill_none(self.sc_eta(in_electrons), 0), -2.4999, 2.4999)
         electron_phi = ak.fill_none(in_electrons.phi, 0)
 
         year_map = {
@@ -296,7 +351,7 @@ class ElectronWeights:
     def get_hlt_weights_run3(self, syst, id_wp):
         """Compute electron HLT weights for Run3 datasets"""
         # get correction set
-        cset = correctionlib.CorrectionSet.from_file(
+        cset = load_correction_set(
             correction_files["electron_hlt"][self.year]
         )
         # get electrons that pass the id wp, and within SF binning
@@ -413,7 +468,7 @@ class ElectronWeights:
         kind = "single" if ak.all(ak.num(self.electrons) == 1) else "double"
 
         if kind == "single":
-            cset = correctionlib.CorrectionSet.from_file(
+            cset = load_correction_set(
                 correction_files["electron_hlt"][self.year]
             )
             sf = cset[f"HLT_SF_{hlt_paths[self.year]}_MVAiso80ID"].evaluate(
@@ -424,7 +479,7 @@ class ElectronWeights:
             nominal_sf = ak.firsts(sf)
 
         elif kind == "double":
-            cset_data_eff = correctionlib.CorrectionSet.from_file(
+            cset_data_eff = load_correction_set(
                 correction_files["electron_hlt_data_eff"][self.year]
             )
             data_eff = cset_data_eff[
@@ -441,7 +496,7 @@ class ElectronWeights:
             )
             full_data_eff = ak.fill_none(full_data_eff, 1)
 
-            cset_mc_eff = correctionlib.CorrectionSet.from_file(
+            cset_mc_eff = load_correction_set(
                 correction_files["electron_hlt_mc_eff"][self.year]
             )
             mc_eff = cset_mc_eff[

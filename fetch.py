@@ -49,13 +49,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    try:
-        subprocess.run("voms-proxy-info -exists", shell=True, check=True)
-    except subprocess.CalledProcessError:
-        raise Exception(
-            "VOMS proxy expired or non-existing: please run 'voms-proxy-init --voms cms'"
-        )
     if not args.onlysignal:
+        try:
+            subprocess.run("voms-proxy-info -exists", shell=True, check=True)
+        except subprocess.CalledProcessError:
+            raise Exception(
+                "VOMS proxy expired or non-existing: please run 'voms-proxy-init --voms cms'"
+            )
         sites_file = Path.cwd() / "analysis" / "filesets" / f"{args.year}_sites.yaml"
         if not sites_file.exists():
             cmd = f"python3 analysis/filesets/build_sites.py --year {args.year}"

@@ -82,7 +82,8 @@ if __name__ == "__main__":
 
     # open dataset configs
     filesets_dir = Path.cwd() / "analysis" / "filesets"
-    datasets_dir = filesets_dir / f"{args.year}_nanov12.yaml"
+    nano_version = get_nano_version(args.year)
+    datasets_dir = filesets_dir / f"{args.year}_nanov{nano_version}.yaml"
     with open(datasets_dir, "r") as f:
         dataset_configs = yaml.safe_load(f)
 
@@ -94,6 +95,9 @@ if __name__ == "__main__":
 
     das_queries = {}
     for sample in samples_to_use:
+        if dataset_configs[sample].get("era") == "signal":
+            # private samples are handled by make_signal_filesets.py (fetch.py -s)
+            continue
         query = dataset_configs[sample]["query"]
         if query:
             das_queries[sample] = query
@@ -172,11 +176,16 @@ if __name__ == "__main__":
                 print(f"  No files found for {dataset_key}")
                 new_dataset[dataset_key] = []
 
-    # save new fileset
-    nano_version = get_nano_version(args.year)
+    # save new fileset: update the existing file (if any) so that samples built in a
+    # previous call (e.g. the private signal samples) are kept
     fileset_file = filesets_dir / f"fileset_{args.year}_nanov{nano_version}_lxplus.json"
+    built_dataset = {}
+    if fileset_file.exists():
+        with open(fileset_file, "r") as f:
+            built_dataset = json.load(f)
+    built_dataset.update(new_dataset)
     with open(fileset_file, "w") as json_file:
-        json.dump(new_dataset, json_file, indent=4, sort_keys=True)
+        json.dump(built_dataset, json_file, indent=4, sort_keys=True)
 
     print(f"\nFileset saved to: {fileset_file}")
     print(f"Total samples: {len(new_dataset)}")

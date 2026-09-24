@@ -1,0 +1,76 @@
+# ==================================================================================
+# H -> tautau + charm, mu tau_h channel (2024, Summer24 NanoAODv15) -- STARTING POINT
+#
+# This workflow runs as it is. Everything not written here comes from
+# includes/htautau_common.yaml (objects, common selections, ~120 histograms). Until the
+# mu tau_h pair is built (TODO 2) the pair-based categories stay empty (a warning says so);
+# the gen-level category is filled from the start.
+# htautau_etau.yaml is a complete channel built the same way: use it as the example.
+# The steps are described in README_HToTauTau.md, "The mu tau_h channel: your starting point".
+#
+# Smoke test (repo root):
+#   $PY run_local.py -w htautau_mutau -y 2024 -d HplusBottom_HtoTauTau --files <file.root> --max-chunks 1 --iterative
+# ==================================================================================
+extends: includes/htautau_common
+object_selection:
+  # TODO 1 (objects): the signal muon. Override `muons` here (an overridden key keeps its place
+  #   in the build order): kinematics matched to your trigger legs, ID, isolation, impact
+  #   parameter. The common file only holds a loose placeholder. Override `taus`, `muons_study`
+  #   and `taus_study` too if your choices need it (htautau_etau.yaml overrides `electrons` and `taus`).
+  htt_pair:
+    # TODO 2 (pair): implement select_htt_pair_mutau in analysis/selections/object_selections.py
+    #   and its ranking (RANK_MUTAU, next to RANK_ETAU) in analysis/selections/htautau.py
+    field: select_htt_pair_mutau
+event_selection:
+  # TODO 3 (triggers): choose the HLT paths (flags: analysis/selections/trigger_flags.yaml), define
+  #   gated trigger regions (HLT bit + offline cuts on the pair legs + trigger-object matching, with
+  #   the filter bits in TRIGOBJ_BITS, analysis/selections/trigger.py) and make `trigger` their OR.
+  #   Placeholder below: the single-muon flag, no offline gate, no matching.
+  hlt_paths:                       # primary dataset -> flags (dict order = PD priority on data)
+    Muon:
+      - SingleMu
+  selections:
+    trigger: get_trigger_mask(events, hlt_paths, dataset, year)
+    # TODO 4 (selection): the channel selections (lepton multiplicities, extra-lepton vetoes, ...)
+  categories:
+    gen_mutau:                     # truth mu tau_h, no reco requirement
+      - gen_mutau
+    sel_mutau:                     # TODO 4: add your channel selections
+      - goodvertex
+      - lumimask
+      - met_filters
+      - one_pair
+      - os_pair
+    sel_mutau_trig:
+      - goodvertex
+      - lumimask
+      - met_filters
+      - trigger
+      - one_pair
+      - os_pair
+corrections:
+  event_weights:
+    # TODO 5 (scale factors): muon ID / isolation SFs matching your working points
+    #   (muon: [id: <wp>, iso: <wp>, trigger: false]), then the trigger SFs of your trigger
+    #   regions: the muon leg needs MuonWeights.add_region_trigger_weights
+    #   (analysis/corrections/muon.py, a stub to implement), the tau_h legs use `tau.trigger`
+    #   (see htautau_etau.yaml and analysis/workflows/README.md).
+    muon: false
+    electron: false                # no electron in this channel
+plotting:
+  category_labels:
+    gen_mutau: 1_gen_full_region
+    sel_mutau: 2_selection_no_trigger
+    sel_mutau_trig: 3_selection_trigger
+  group_labels:
+    lepton: muon
+  groups:
+    lepton: ["mu_*"]
+histogram_config:
+  # TODO 6 (histograms): muon axes (isolation, ID, ...), the trigger turn-on / trigger-flag axes of
+  #   your trigger study (the trig_* layouts of htautau_etau.yaml) and the gen-level acceptance flag
+  #   in_gen_acc_mutau (select_acceptance_flags, analysis/selections/object_selections.py).
+  axes:
+    mu_pt: {type: Regular, bins: 60, start: 0, stop: 300, label: '$p_T(\mu)$ [GeV]', expression: 'objects[''l1''].pt'}
+  layout:
+    mu_pt: [mu_pt]

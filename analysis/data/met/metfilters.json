@@ -1,90 +1,112 @@
 {
-    "2022preEE": {
-        "data": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ],
-        "mc": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ]
-    },
-    "2022postEE": {
-        "data": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ],
-        "mc": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ]
-    },
-    "2023preBPix": {
-        "data": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ],
-        "mc": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ]
-    },
-    "2023postBPix": {
-        "data": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ],
-        "mc": [
-            "goodVertices",
-            "globalSuperTightHalo2016Filter",
-            "EcalDeadCellTriggerPrimitiveFilter",
-            "BadPFMuonFilter",
-            "BadPFMuonDzFilter",
-            "hfNoisyHitsFilter",
-            "eeBadScFilter",
-            "ecalBadCalibFilter"
-        ]
-    }
+  "2022preEE": {
+    "data": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ],
+    "mc": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ]
+  },
+  "2022postEE": {
+    "data": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ],
+    "mc": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ]
+  },
+  "2023preBPix": {
+    "data": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ],
+    "mc": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ]
+  },
+  "2023postBPix": {
+    "data": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ],
+    "mc": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ]
+  },
+  "2024": {
+    "data": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ],
+    "mc": [
+      "goodVertices",
+      "globalSuperTightHalo2016Filter",
+      "EcalDeadCellTriggerPrimitiveFilter",
+      "BadPFMuonFilter",
+      "BadPFMuonDzFilter",
+      "hfNoisyHitsFilter",
+      "eeBadScFilter",
+      "ecalBadCalibFilter"
+    ]
+  }
 }

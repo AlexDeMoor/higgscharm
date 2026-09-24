@@ -23,8 +23,9 @@ def get_flow_array(histogram, variable, variables_map):
 def get_variable_array(histogram, histogram_config, variable, variables_map, flow):
     axis_type = histogram_config.axes[variable].type
     if axis_type in ["IntCategory", "Integer"]:
-        variable_array = normalize(variables_map[variable])
-        variable_array = ak.to_numpy(variable_array).astype(int)
+        variable_array = ak.to_numpy(normalize(variables_map[variable]))
+        # None/NaN entries -> a sentinel that lands in the flow bins (no RuntimeWarning)
+        variable_array = np.where(np.isnan(variable_array), -999999, variable_array).astype(int)
     elif axis_type == "Boolean":
         variable_array = normalize(variables_map[variable])
         variable_array = ak.to_numpy(variable_array).astype(bool)
@@ -115,7 +116,7 @@ def fill_histograms(
 ):
     if shift is None:
         variations = ["nominal"]
-        if is_mc:
+        if is_mc and histogram_config.add_syst_axis and getattr(histogram_config, "fill_variations", True):
             variations += [*weights_container.variations]
         for variation in variations:
             if variation == "nominal":

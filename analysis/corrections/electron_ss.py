@@ -3,7 +3,7 @@ import numpy as np
 import awkward as ak
 from pathlib import Path
 from analysis.corrections.met import update_met
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 
 
 def apply_electron_ss_corrections(
@@ -21,7 +21,7 @@ def apply_electron_ss_corrections(
 
     https://gitlab.cern.ch/cms-analysis-corrections/EGM/examples/-/blob/latest/egmScaleAndSmearingExample.py
     """
-    cset = correctionlib.CorrectionSet.from_file(correction_files["electron_ss"][year])
+    cset = load_correction_set(correction_files["electron_ss"][year])
 
     electrons = events.Electron
     counts = ak.num(events.Electron)
@@ -40,7 +40,9 @@ def apply_electron_ss_corrections(
     if hasattr(events, "genWeight"):
         # for MC, we apply the smearing correction
         smear = cset["SmearAndSyst"].evaluate("smear", pt, r9, sceta)
-        rng = np.random.default_rng(seed=42)
+        # reproducible but different per chunk: seed from the first event number
+        seed = int(ak.to_numpy(events.event)[0]) if len(events) else 42
+        rng = np.random.default_rng(seed=seed)
         random_numbers = rng.normal(loc=0.0, scale=1.0, size=len(pt))
         smearing = 1 + smear * random_numbers
         pt_corrected = pt * smearing
@@ -55,15 +57,15 @@ def apply_electron_ss_corrections(
         shifts[i][0]["Electron"] = electrons
 
     # uncertainties
-    if corrections_config["object_shifts"]:
+    if hasattr(events, "genWeight") and corrections_config["object_shifts"]:
         ele_smear_up, ele_smear_down = events.Electron, events.Electron
         ele_scale_up, ele_scale_down = events.Electron, events.Electron
         # scale and smearing uncertainties should be evaluated on the original MC only
         if hasattr(events, "genWeight"):
             # Obtain the uncertainty on the smearing width using MC original variables (pt, r9, and ScEta).
             unc_smear = cset["SmearAndSyst"].evaluate("smear", pt, r9, sceta)
-            smear_up = cset["SmearAndSyst"].evaluate("smear", pt, r9, sceta)
-            smear_down = cset["SmearAndSyst"].evaluate("smear", pt, r9, sceta)
+            smear_up = cset["SmearAndSyst"].evaluate("smear_up", pt, r9, sceta)
+            smear_down = cset["SmearAndSyst"].evaluate("smear_down", pt, r9, sceta)
             # In 2022, the "smear_down" variation can lead to negative smearing width in some cases, which is unphysical.
             # Therefore, we use max(smear - unc_smear, 0) to ensure the smearing width is non-negative.
             smearing_up = 1 + smear_up * random_numbers
@@ -83,8 +85,7 @@ def apply_electron_ss_corrections(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": shifts[0][0]["Muon"],
                     "Electron": ele_scale_up,
                 },
@@ -94,8 +95,7 @@ def apply_electron_ss_corrections(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": shifts[0][0]["Muon"],
                     "Electron": ele_scale_down,
                 },
@@ -105,8 +105,7 @@ def apply_electron_ss_corrections(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": shifts[0][0]["Muon"],
                     "Electron": ele_smear_up,
                 },
@@ -116,8 +115,7 @@ def apply_electron_ss_corrections(
         shifts += [
             (
                 {
-                    "Jet": shifts[0][0]["Jet"],
-                    "MET": shifts[0][0]["MET"],
+                                        **{k: v for k, v in shifts[0][0].items() if k not in ("Muon", "Electron")},
                     "Muon": shifts[0][0]["Muon"],
                     "Electron": ele_smear_down,
                 },

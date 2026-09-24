@@ -1,15 +1,71 @@
+import copy
 import yaml
-import importlib.resources
+from pathlib import Path
 from analysis.histograms import HistogramConfig
 from .workflow_config import WorkflowConfig
 
 
+WORKFLOWS_DIR = Path(__file__).resolve().parents[1]
+
+
+def _load_yaml(name: str) -> dict:
+    """Load `analysis/workflows/<name>.yaml` (`name` may contain a sub-directory,
+    e.g. 'includes/htautau_common')."""
+    path = WORKFLOWS_DIR / f"{name}.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"workflow config {path} does not exist")
+    with open(path, "r") as f:
+        return yaml.safe_load(f) or {}
+
+
+def deep_merge(base: dict, child: dict) -> dict:
+    """Recursively merge `child` into a copy of `base`.
+
+    - keys present in both with dict values are merged recursively;
+    - any other key in `child` replaces the base value (lists are replaced, not
+      concatenated);
+    - a `null` value in `child` deletes the key (kept as a None tombstone while an
+      `extends` chain is being resolved, stripped by strip_tombstones at the end);
+    - base key order is preserved, new keys are appended (this matters for
+      `object_selection`, whose objects are built sequentially).
+    """
+    out = copy.deepcopy(base)
+    for key, value in child.items():
+        if value is None:
+            out[key] = None
+        elif isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
+def strip_tombstones(config):
+    """remove the None-valued keys (deletions) recursively"""
+    if isinstance(config, dict):
+        return {k: strip_tombstones(v) for k, v in config.items() if v is not None}
+    return config
+
+
 class WorkflowConfigBuilder:
     def __init__(self, workflow: str):
-        with importlib.resources.open_text(
-            f"analysis.workflows", f"{workflow}.yaml"
-        ) as file:
-            self.config = yaml.safe_load(file)
+        config = _load_yaml(workflow)
+        # `extends: <name>` chains: the named yaml is loaded (recursively) and this
+        # config is merged on top of it (see deep_merge for the rules)
+        seen = [workflow]
+        while "extends" in config:
+            base_name = config.pop("extends")
+            if base_name in seen:
+                raise ValueError(f"circular 'extends' chain: {seen + [base_name]}")
+            seen.append(base_name)
+            base = _load_yaml(base_name)
+            base_extends = base.pop("extends", None)
+            config = deep_merge(base, config)
+            if base_extends is not None:
+                config["extends"] = base_extends
+        self.config = strip_tombstones(config)
+        if not (self.config.get("event_selection") or {}).get("categories"):
+            raise ValueError(f"workflow {workflow!r} defines no event_selection.categories")
 
     def build_workflow_config(self):
         return WorkflowConfig(
@@ -21,7 +77,8 @@ class WorkflowConfigBuilder:
             mva=self.config.get("mva"),
             inference=self.config.get("inference"),
             combine=self.config.get("combine"),
-            negrw=self.config.get("negrw"),
+            plotting=self.config.get("plotting"),
+            plugins=self.config.get("plugins"),
         )
 
     def parse_object_selection(self):
@@ -55,7 +112,7 @@ class WorkflowConfigBuilder:
         return event_selection
 
     def parse_histogram_config(self):
-        hist_config = HistogramConfig(**self.config["histogram_config"])
+        hist_config = HistogramConfig(**copy.deepcopy(self.config["histogram_config"]))
         hist_config.categories = list(self.parse_event_selection()["categories"].keys())
         return hist_config
 
@@ -63,9 +120,13 @@ class WorkflowConfigBuilder:
         corrections = {}
         corrections["object"] = self.config["corrections"]["object"]
         corrections["object_shifts"] = self.config["corrections"]["object_shifts"]
+        # working points used by the tau energy scale (must match the tau selection)
+        corrections["tau_es"] = self.config["corrections"].get("tau_es", {}) or {}
         corrections["event_weights"] = {}
         for name, vals in self.config["corrections"]["event_weights"].items():
             if isinstance(vals, bool):
+                corrections["event_weights"][name] = vals
+            elif name == "object_sf_categories":
                 corrections["event_weights"][name] = vals
             elif isinstance(vals, list):
                 corrections["event_weights"][name] = {}

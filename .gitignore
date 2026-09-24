@@ -17,6 +17,7 @@ analysis/filesets/*_sites.yaml
 
 # Analysis outputs
 outputs/
+outputs
 *.log
 
 # combine outputs (regenerable)
@@ -35,3 +36,12 @@ analysis/filesets/sumw_*.json
 # condor submission dirs + logs (generated per submission)
 condor/*/
 condor/logs/
+
+# local production logs
+logs/
+
+# Claude Code session notes (local only)
+CLAUDE.md
+CODE_REPORT.md
+MENU2024_VS_STUDY.md
+.claude/

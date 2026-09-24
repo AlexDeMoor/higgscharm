@@ -4,7 +4,9 @@ import numpy as np
 import awkward as ak
 import importlib.resources
 from coffea.lumi_tools import LumiMask
-from analysis.selections.trigger import trigger_mask, trigger_match_mask, zzto4l_trigger
+from analysis.selections.trigger import (
+    trigger_mask, trigger_match_mask, zzto4l_trigger, trigger_from_flag, trigger_flags_or, trigger_region_mask,
+)
 
 
 def get_lumi_mask(events, year):
@@ -37,6 +39,21 @@ def get_zzto4l_trigger_mask(events, hlt_paths, dataset_key, year):
 
 def get_trigger_mask(events, hlt_paths, dataset_key, year):
     return trigger_mask(events, hlt_paths, dataset_key, year)
+
+
+def get_trigger_flag_mask(events, flag, year):
+    """bool mask of a single trigger flag (OR of its HLT paths), for pass/fail axes"""
+    return trigger_from_flag(events, flag, year)
+
+
+def get_trigger_flags_or(events, flags, year):
+    """plain OR of several trigger flags (no primary-dataset exclusivity; for study axes)"""
+    return trigger_flags_or(events, flags, year)
+
+
+def get_trigger_region_mask(events, hlt_paths, dataset, year, flags):
+    """OR of the flags of one trigger region; PD-exclusive for data (see trigger_region_mask)"""
+    return trigger_region_mask(events, hlt_paths, dataset, year, flags)
 
 
 def get_trigger_match_mask(events, hlt_paths, year, leptons):

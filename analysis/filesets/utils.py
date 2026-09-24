@@ -20,7 +20,7 @@ def get_rootfiles(year: str, dataset: str):
     if not root_files:
         # if no files found, check in the subdirectories
         root_files = glob.glob(f"{dataset_config['path']}/*/*.root")
-    elif not root_files:
+    if not root_files:
         raise FileNotFoundError(
             f"No .root files found in {dataset_config['path']} or its subdirectories."
         )
@@ -79,7 +79,7 @@ def get_dataset_config(year: str):
 
 
 def get_dataset_name(dataset):
-    datasets = ["MuonEG", "Muon", "EGamma", "SingleMuon", "DoubleMuon"]
+    datasets = ["MuonEG", "Muon", "EGamma", "SingleMuon", "DoubleMuon", "Tau"]
     for dataset_key in datasets:
         if dataset.startswith(dataset_key):
             return dataset_key

@@ -44,3 +44,28 @@ def get_ctag_mask(jets: ak.Array, year: str, wp: str):
         )
 
     return pass_ctag_wp
+
+
+def get_btag_mask(jets: ak.Array, year: str, wp: str):
+    """
+    b-tagging working point mask (UParT for nanov15, ParticleNet for nanov12, DeepJet for nanov9)
+
+    Parameters:
+    -----------
+      jets: Jet collection
+      year: {2022preEE, 2022postEE, 2023preBPix, 2023postBPix, 2024}
+      wp: {loose, medium, tight, xtight, xxtight}
+    """
+    nano_version = get_nano_version(year)
+    wp_map = {"loose": "L", "medium": "M", "tight": "T", "xtight": "XT", "xxtight": "XXT"}
+    if year not in correction_files.get("btagging", {}):
+        raise KeyError(f"no b-tagging working points registered for {year}")
+    cset = correctionlib.CorrectionSet.from_file(correction_files["btagging"][year])
+    if nano_version == "15":
+        threshold = cset["UParTAK4_wp_values"].evaluate(wp_map[wp])
+        return jets.btagUParTAK4B > threshold
+    elif nano_version == "12":
+        threshold = cset["particleNet_wp_values"].evaluate(wp_map[wp])
+        return jets.btagPNetB > threshold
+    threshold = cset["deepJet_wp_values"].evaluate(wp_map[wp])
+    return jets.btagDeepFlavB > threshold

@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 from typing import Union, Dict, Any, List
 
@@ -8,6 +9,7 @@ class VariableAxis:
     edges: list
     label: str
     expression: str
+    mc_only: bool = False
     type_: str = field(default="Variable", metadata={"alias": "type"})
 
     def __post_init__(self):
@@ -23,6 +25,7 @@ class RegularAxis:
     stop: Union[int, float]
     label: str
     expression: str
+    mc_only: bool = False
     type_: str = field(default="Regular", metadata={"alias": "type"})
 
     def __post_init__(self):
@@ -43,6 +46,7 @@ class IntCategoryAxis:
     label: str
     expression: str
     growth: bool = False
+    mc_only: bool = False
     type_: str = field(default="IntCategory", metadata={"alias": "type"})
 
     def __post_init__(self):
@@ -62,6 +66,7 @@ class IntegerAxis:
     stop: Union[int, float]
     label: str
     expression: str
+    mc_only: bool = False
     type_: str = field(default="Integer", metadata={"alias": "type"})
 
     def __post_init__(self):
@@ -81,6 +86,7 @@ class StrCategoryAxis:
     label: str
     expression: str
     growth: bool = False
+    mc_only: bool = False
     type_: str = field(default="StrCategory", metadata={"alias": "type"})
 
     def __post_init__(self):
@@ -98,6 +104,7 @@ class BooleanAxis:
     name: str
     label: str
     expression: str
+    mc_only: bool = False
     type_: str = field(default="Boolean", metadata={"alias": "type"})
 
     def __post_init__(self):
@@ -155,8 +162,15 @@ class HistogramConfig:
     layout: Union[str, Dict[str, List[str]]]
     add_weight: bool = True
     add_syst_axis: bool = True
+    # fill the weight-systematic variations (Up/Down of every weight) in addition to
+    # the nominal histograms (coffea output only). Set to false for fast shape /
+    # efficiency studies that do not need the systematic templates.
+    fill_variations: bool = True
 
     def __post_init__(self):
+        # variations can only be stored when the systematic axis exists
+        if not self.add_syst_axis:
+            self.fill_variations = False
         # set variables attribute
         if isinstance(self.layout, str):
             self.stack = False
@@ -169,7 +183,7 @@ class HistogramConfig:
                     self.variables.append(variable)
 
         # replace axes dictionary with instantiated axis objects
-        self.dict_axes = self.axes.copy()
+        self.dict_axes = copy.deepcopy(self.axes)
         axis_type_map = {
             "Variable": VariableAxis,
             "Regular": RegularAxis,
@@ -189,6 +203,7 @@ class HistogramConfig:
         return {
             "add_syst_axis": self.add_syst_axis,
             "add_weight": self.add_weight,
+            "fill_variations": self.fill_variations,
             "axes": self.dict_axes,
             "layout": self.layout,
         }

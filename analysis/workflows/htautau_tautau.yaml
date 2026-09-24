@@ -1,0 +1,261 @@
+# ==================================================================================
+# H -> tautau + charm, tau_h tau_h channel (2024, Summer24 NanoAODv15)
+# Trigger strategy (decision of 2026-09-16, replaces the flat OR of 2026-09-09):
+#   `trigger` = trig_ditau OR trig_ditaujet, PNet paths only, both tau_h legs matched to TrigObj, so that
+#   the TAU POG 2024 `tau_trigger` scale factors (measured for the PNet paths) can be applied per leg:
+#     trig_ditau    : DoublePNetTauhPFJet30_Medium_L2NN_eta2p3, both tau_h matched to the di-tau leg (bit 11)
+#                     -> SF = SF_ditau(tau1) * SF_ditau(tau2)
+#     trig_ditaujet : DoublePNetTauhPFJet26_L2NN_eta2p3_PFJet60, not in trig_ditau, both tau_h matched to the
+#                     di-tau+jet leg (bit 14), >= 1 jet (pT > 65, |eta| < 4.7, dR > 0.5 from both tau_h) matched
+#                     to the jet leg (bit 17) -> SF = SF_ditaujet(tau1) * SF_ditaujet(tau2). Approximate: the
+#                     region is exclusive by trigger decision (1 - eff_ditau is not corrected) and the jet leg
+#                     has no SF (flat uncertainty); it holds ~3-4 % of `trigger`.
+#   The DeepTau di-tau paths (DiTau_DeepTau, DiTauJet_DeepTau) have no 2024 SF: they are study axes only
+#   (pass_*), as is the flat OR of the four paths (pass_union).
+# tau_h objects: pT > 24.6 GeV and |eta| < 2.1.
+#   - 24.6 GeV is the lower edge of the 2024 `tau_trigger` fit range (the same for every trigtype, flow=error),
+#     NOT a plateau or a POG-endorsed analysis threshold: it lies below the online thresholds (30 / 26), the
+#     2022/23 SFs started at online + 4.6 GeV, published Run-3 analyses cut at online + 5 GeV. Legs below
+#     ~30 GeV only enter through the steep turn-on (per-leg data efficiency 3-12 %) with DM-dependent SFs.
+#   - |eta| < 2.1: the SF has no eta input (measured at |eta| < 2.1); the PNet HLT legs reach |eta| 2.3 but
+#     2.1-2.5 held 3 % of the selection and only 0.4 % of the triggered events (efficiency 0.08 at 2.1-2.3).
+# Expected yields (replay of 2026-09-16, 4+4 files, 108.96/fb, with trigger SF): cH 7.29, bH 55.6
+# (+41 % / +40 % w.r.t. a 35/31 GeV gated selection; the old flat OR gave 7.78 / 59.2 without SF).
+# ==================================================================================
+extends: includes/htautau_common
+object_selection:
+  taus:
+    field: events.Tau
+    cuts:
+      - events.Tau.pt > 24.6                # lower edge of the tau_trigger SF fit range (see header)
+      - np.abs(events.Tau.eta) < 2.1        # tau_trigger SF measurement region
+      - working_points.tau_decay_mode(events)
+      - working_points.tau_id_vsjet(events, 'Medium')
+      - working_points.tau_id_vse(events, 'VVLoose')
+      - working_points.tau_id_vsmu(events, 'VLoose')
+      - np.abs(events.Tau.dz) < 0.2
+      - np.abs(events.Tau.charge) == 1
+      - delta_r_higher(events.Tau, objects['veto_muons'], 0.5)
+      - delta_r_higher(events.Tau, objects['veto_electrons'], 0.5)
+  taus_study:
+    field: events.Tau
+    cuts:
+      - events.Tau.pt > 30
+      - np.abs(events.Tau.eta) < 2.5     # the study kept 2.5: literal reproduction of quick_trigg_study
+      - working_points.tau_decay_mode(events, (0, 1, 2, 10, 11))
+      - working_points.tau_id_vsjet(events, 'Medium')
+      - working_points.tau_id_vsmu(events, 'Loose')
+      - working_points.tau_id_vse(events, 'Loose')
+  htt_pair:
+    field: select_htt_pair_tautau
+event_selection:
+  hlt_paths:
+    Tau:
+      - DiTau_PNet
+      - DiTauJet_DeepTau
+      - DiTau_DeepTau
+      - DiTauJet_PNet
+  selections:
+    trig_ditau: get_trigger_region_mask(events, hlt_paths, dataset, year, ['DiTau_PNet']) & objects['l1_match_ditau'] & objects['l2_match_ditau']
+    trig_ditaujet: get_trigger_region_mask(events, hlt_paths, dataset, year, ['DiTauJet_PNet']) & objects['l1_match_ditaujet'] & objects['l2_match_ditaujet'] & objects['jet_match_ditaujet'] & ~selection_masks['trig_ditau']
+    trigger: selection_masks['trig_ditau'] | selection_masks['trig_ditaujet']   # PNet regions with tau trigger SFs
+    two_taus: ak.num(objects['taus']) >= 2
+    lepton_veto: (ak.num(objects['veto_muons']) == 0) & (ak.num(objects['veto_electrons']) == 0)
+    study_den: ak.num(objects['taus_study']) >= 2
+  categories:
+    gen_tautau:
+      - gen_tautau
+    den_tautau_study:
+      - study_den
+    sel_tautau:
+      - goodvertex
+      - lumimask
+      - met_filters
+      - two_taus
+      - lepton_veto
+      - one_pair
+      - os_pair
+    sel_tautau_trig:
+      - goodvertex
+      - lumimask
+      - met_filters
+      - trigger
+      - two_taus
+      - lepton_veto
+      - one_pair
+      - os_pair
+    sel_tautau_trig_gentautau:
+      - goodvertex
+      - lumimask
+      - met_filters
+      - trigger
+      - two_taus
+      - lepton_veto
+      - one_pair
+      - os_pair
+      - gen_tautau
+corrections:
+  event_weights:
+    muon: false
+    electron: false
+    tau:                                   # the full list: deep_merge replaces lists
+      - vsjet: Medium
+      - vse: VVLoose
+      - vsmu: VLoose
+      - trigger:                           # TAU POG tau_trigger SFs (PNet paths), DM-binned, product of the legs
+          regions: {ditau: trig_ditau, ditaujet: trig_ditaujet}   # trigtype -> selection
+          categories: ["sel_tautau_trig*"]                        # only the categories that require `trigger`
+plotting:
+  category_labels:
+    gen_tautau: 1_gen_full_region
+    den_tautau_study: 2_trigger_study_denominator
+    sel_tautau: 3_selection_no_trigger
+    sel_tautau_trig: 4_selection_trigger
+    sel_tautau_trig_gentautau: 5_selection_trigger_truthmatched
+  group_labels:
+    lepton: tau1
+  groups:
+    lepton: ["tau1_*"]
+histogram_config:
+  add_syst_axis: true
+  add_weight: true
+  axes:
+    tau1_pt: {type: Regular, bins: 60, start: 0, stop: 300, label: '$p_T(\tau_h^{1})$ [GeV]', expression: 'objects[''l1''].pt'}
+    tau1_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: '$\eta(\tau_h^{1})$', expression: 'objects[''l1''].eta'}
+    tau1_phi: {type: Regular, bins: 50, start: -3.14159, stop: 3.14159, label: '$\phi(\tau_h^{1})$', expression: 'objects[''l1''].phi'}
+    tau1_dm:
+      type: IntCategory
+      categories: [0, 1, 2, 5, 6, 10, 11]
+      label: $\tau_h^{1}$ decay mode
+      expression: objects['l1'].decayMode
+    tau1_charge:
+      type: IntCategory
+      categories: [-1, 1]
+      label: $\tau_h^{1}$ charge
+      expression: objects['l1'].charge
+    tau1_dz: {type: Regular, bins: 50, start: -0.2, stop: 0.2, label: '$\tau_h^{1}$ $d_z$ [cm]', expression: 'objects[''l1''].dz'}
+    tau1_raw_vsjet: {type: Regular, bins: 50, start: 0, stop: 1, label: '$\tau_h^{1}$ DeepTau VSjet score', expression: 'objects[''l1''].rawDeepTau2018v2p5VSjet'}
+    tau1_raw_vse: {type: Regular, bins: 50, start: 0, stop: 1, label: '$\tau_h^{1}$ DeepTau VSe score', expression: 'objects[''l1''].rawDeepTau2018v2p5VSe'}
+    tau1_raw_vsmu: {type: Regular, bins: 50, start: 0, stop: 1, label: '$\tau_h^{1}$ DeepTau VSmu score', expression: 'objects[''l1''].rawDeepTau2018v2p5VSmu'}
+    tau1_idx_vsjet: {type: Integer, start: 0, stop: 9, label: '$\tau_h^{1}$ VSjet WP index', expression: 'objects[''l1''].idDeepTau2018v2p5VSjet'}
+    tau1_idx_vse: {type: Integer, start: 0, stop: 9, label: '$\tau_h^{1}$ VSe WP index', expression: 'objects[''l1''].idDeepTau2018v2p5VSe'}
+    tau1_idx_vsmu: {type: Integer, start: 0, stop: 5, label: '$\tau_h^{1}$ VSmu WP index', expression: 'objects[''l1''].idDeepTau2018v2p5VSmu'}
+    tau1_genflav:
+      type: IntCategory
+      categories: [0, 1, 2, 3, 4, 5, 6]
+      label: $\tau_h^{1}$ genPartFlav
+      expression: objects['l1'].genPartFlav
+      mc_only: true
+    l1_vse_tight: {type: Boolean, label: leading $\tau_h$ passes VSe Tight, expression: 'objects[''l1_vse_tight'']'}
+    l1_vsmu_tight: {type: Boolean, label: leading $\tau_h$ passes VSmu Tight, expression: 'objects[''l1_vsmu_tight'']'}
+    l1_vsjet_tight: {type: Boolean, label: leading $\tau_h$ passes VSjet Tight, expression: 'objects[''l1_vsjet_tight'']'}
+    turnon_lepton_pt:
+      type: Variable
+      edges: [24.6, 26, 28, 30, 32.5, 35, 37.5, 40, 45, 50, 55, 60, 70, 85, 110, 150]
+      label: sub-leading $\tau_h$ $p_T$ [GeV]
+      expression: ak.fill_none(objects['taus_sublead'].pt, np.nan)
+    turnon_lepton_eta:
+      type: Variable
+      edges: &id001 [-2.5, -2.4, -2.3, -2.1, -1.6, -1.2, -0.8, -0.4, 0, 0.4, 0.8, 1.2, 1.6, 2.1, 2.3, 2.4, 2.5]
+      label: sub-leading $\tau_h$ $\eta$
+      expression: ak.fill_none(objects['taus_sublead'].eta, np.nan)
+    turnon_tau_pt:
+      type: Variable
+      edges: [0, 20, 22, 25, 27, 30, 32.5, 35, 37.5, 40, 45, 50, 55, 60, 70, 85, 110, 150]
+      label: leading $\tau_h$ $p_T$ [GeV]
+      expression: ak.fill_none(objects['taus_lead'].pt, np.nan)
+    turnon_gen_lepton_pt:
+      type: Variable
+      edges: &id002 [0, 10, 15, 20, 25, 30, 32.5, 35, 37.5, 40, 45, 50, 55, 60, 70, 85, 110, 150]
+      label: gen sub-leading $\tau_h^{vis}$ $p_T$ [GeV]
+      expression: ak.fill_none(objects['gen_vistau2'].pt, np.nan)
+    turnon_gen_lepton_eta:
+      type: Variable
+      edges: *id001
+      label: gen sub-leading $\tau_h^{vis}$ $\eta$
+      expression: ak.fill_none(objects['gen_vistau2'].eta, np.nan)
+    turnon_gen_tau_pt:
+      type: Variable
+      edges: *id002
+      label: gen leading $\tau_h^{vis}$ $p_T$ [GeV]
+      expression: ak.fill_none(objects['gen_vistau1'].pt, np.nan)
+    turnon_study_lepton_pt:
+      type: Variable
+      edges: [30, 32.5, 35, 37.5, 40, 45, 50, 55, 60, 70, 85, 110, 150]
+      label: sub-leading $\tau_h$ $p_T$ [GeV] (study objects)
+      expression: ak.fill_none(objects['taus_study_sublead'].pt, np.nan)
+    pass_DiTau_PNet: {type: Boolean, label: DiTau_PNet, expression: 'get_trigger_flag_mask(events, ''DiTau_PNet'', year)'}
+    pass_DiTauJet_DeepTau: {type: Boolean, label: DiTauJet_DeepTau, expression: 'get_trigger_flag_mask(events, ''DiTauJet_DeepTau'', year)'}
+    pass_DiTau_DeepTau: {type: Boolean, label: DiTau_DeepTau, expression: 'get_trigger_flag_mask(events, ''DiTau_DeepTau'', year)'}
+    pass_DiTauJet_PNet: {type: Boolean, label: DiTauJet_PNet, expression: 'get_trigger_flag_mask(events, ''DiTauJet_PNet'', year)'}
+    pass_union: {type: Boolean, label: passes the trigger union (pure OR of the adopted paths), expression: 'get_trigger_flags_or(events, [''DiTau_PNet'', ''DiTauJet_DeepTau'', ''DiTau_DeepTau'', ''DiTauJet_PNet''],
+        year)'}
+    pass_trig_ditau: {type: Boolean, label: 'trigger region trig_ditau (PNet di-tau, legs matched)', expression: 'selection_masks[''trig_ditau'']'}
+    pass_trig_ditaujet: {type: Boolean, label: 'trigger region trig_ditaujet (PNet di-tau+jet, legs + jet matched)', expression: 'selection_masks[''trig_ditaujet'']'}
+    in_gen_acc: {type: Boolean, label: gen-level acceptance, expression: 'objects[''in_gen_acc_tautau'']'}
+    in_reco_acc: {type: Boolean, label: passes the reco selection, expression: 'category_masks[''sel_tautau'']'}
+    tau_pt: {label: '$p_T(\tau_h^{2})$ [GeV]'}
+    tau_eta: {label: '$\eta(\tau_h^{2})$'}
+    tau_phi: {label: '$\phi(\tau_h^{2})$'}
+    tau_mass: {label: '$m(\tau_h^{2})$ [GeV]'}
+    tau_dm: {label: '$\tau_h^{2}$ decay mode'}
+    tau_charge: {label: '$\tau_h^{2}$ charge'}
+    tau_dz: {label: '$\tau_h^{2}$ $d_z$ [cm]'}
+    tau_dxy: {label: '$\tau_h^{2}$ $d_{xy}$ [cm]'}
+    tau_raw_vsjet: {label: '$\tau_h^{2}$ DeepTau VSjet score'}
+    tau_raw_vse: {label: '$\tau_h^{2}$ DeepTau VSe score'}
+    tau_raw_vsmu: {label: '$\tau_h^{2}$ DeepTau VSmu score'}
+    tau_idx_vsjet: {label: '$\tau_h^{2}$ VSjet WP index'}
+    tau_idx_vse: {label: '$\tau_h^{2}$ VSe WP index'}
+    tau_idx_vsmu: {label: '$\tau_h^{2}$ VSmu WP index'}
+    tau_raw_pnet_vsjet: {label: '$\tau_h^{2}$ PNet VSjet score'}
+    tau_raw_upart_vsjet: {label: '$\tau_h^{2}$ UParT VSjet score'}
+    tau_genflav: {label: '$\tau_h^{2}$ genPartFlav'}
+    tau_pt_raw: {label: '$p_T(\tau_h^{2})$ before TES [GeV]'}
+    higgs_dr_legs: {label: '$\Delta R(\tau_h^{1}, \tau_h^{2})$'}
+    higgs_dphi_legs: {label: '$\Delta\phi(\tau_h^{1}, \tau_h^{2})$'}
+    higgs_deta_legs: {label: '$\Delta\eta(\tau_h^{1}, \tau_h^{2})$'}
+    higgs_charge_product: {label: '$q(\tau_h^{1}) \times q(\tau_h^{2})$'}
+    mt_lepton_met: {label: '$m_T(\tau_h^{1}, p_T^{miss})$ [GeV]'}
+    mt_tau_met: {label: '$m_T(\tau_h^{2}, p_T^{miss})$ [GeV]'}
+    higgs_mt_legs: {label: '$m_T(\tau_h^{1}, \tau_h^{2})$ [GeV]'}
+    dphi_lepton_met: {label: '$\Delta\phi(\tau_h^{1}, p_T^{miss})$'}
+    dphi_tau_met: {label: '$\Delta\phi(\tau_h^{2}, p_T^{miss})$'}
+    mt_lepton_met_wp: {label: '$m_T(\tau_h^{1}, p_T^{miss})$ [GeV]'}
+    tau_pt_wp: {label: '$p_T(\tau_h^{2})$ [GeV]'}
+    l2_vse_tight: {label: sub-leading $\tau_h$ passes VSe Tight}
+    l2_vsmu_tight: {label: sub-leading $\tau_h$ passes VSmu Tight}
+    l2_vsjet_tight: {label: sub-leading $\tau_h$ passes VSjet Tight}
+  layout:
+    tau1_pt: [tau1_pt]
+    tau1_eta: [tau1_eta]
+    tau1_phi: [tau1_phi]
+    tau1_dm: [tau1_dm]
+    tau1_charge: [tau1_charge]
+    tau1_dz: [tau1_dz]
+    tau1_raw_vsjet: [tau1_raw_vsjet]
+    tau1_raw_vse: [tau1_raw_vse]
+    tau1_raw_vsmu: [tau1_raw_vsmu]
+    tau1_idx_vsjet: [tau1_idx_vsjet]
+    tau1_idx_vse: [tau1_idx_vse]
+    tau1_idx_vsmu: [tau1_idx_vsmu]
+    tau1_genflav: [tau1_genflav]
+    l1_vse_tight: [l1_vse_tight]
+    l1_vsmu_tight: [l1_vsmu_tight]
+    l1_vsjet_tight: [l1_vsjet_tight]
+    trig_reco: [turnon_lepton_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet, gen_channel]
+    trig_reco_eta: [turnon_lepton_eta, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet]
+    trig_reco_tau: [turnon_tau_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet]
+    trig_reco_jet: [turnon_jet1_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet]
+    trig_reco_met: [turnon_met_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet]
+    trig_gen: [turnon_gen_lepton_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet, in_gen_acc, in_reco_acc]
+    trig_gen_eta: [turnon_gen_lepton_eta, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet, in_gen_acc, in_reco_acc]
+    trig_gen_tau: [turnon_gen_tau_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet, in_gen_acc, in_reco_acc]
+    trig_study: [turnon_study_lepton_pt, pass_DiTau_PNet, pass_DiTauJet_DeepTau, pass_DiTau_DeepTau, pass_DiTauJet_PNet, pass_union, pass_trigger, pass_trig_ditau, pass_trig_ditaujet]
+    higgs_mass_vis_by_tauwp: [higgs_mass_vis_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]
+    higgs_pt_by_tauwp: [higgs_pt_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]
+    tau_pt_by_tauwp: [tau_pt_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]
+    mt_lepton_met_by_tauwp: [mt_lepton_met_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]
+    higgs_dzeta_by_tauwp: [higgs_dzeta_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]
+    higgs_mt_tot_by_tauwp: [higgs_mt_tot_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]
+    higgs_mass_col_by_tauwp: [higgs_mass_col_wp, l2_vse_tight, l2_vsjet_tight, l2_vsmu_tight, l1_vse_tight, l1_vsmu_tight, l1_vsjet_tight]

@@ -1,8 +1,23 @@
+import warnings
 import numpy as np
 import awkward as ak
 from coffea.nanoevents.methods import candidate
+from coffea.nanoevents.methods import vector
 from coffea.nanoevents.methods.vector import LorentzVector
 from analysis.working_points import working_points
+from analysis.filesets.utils import get_nano_version
+from analysis.selections.htautau import (
+    GEN_CHANNEL,
+    RANK_ETAU,
+    RANK_TAUTAU,
+    pt_sorted,
+    to_candidates,
+    gen_htautau_channel,
+    build_htt_pair,
+    dzeta,
+    collinear_mass,
+)
+from analysis.selections.trigger import TRIGOBJ_BITS, TRIGOBJ_CROSS_TYPE, match_trigger_objects
 from analysis.selections import (
     delta_r_higher,
     delta_r_lower,
@@ -16,6 +31,10 @@ from analysis.selections import (
     select_candidate_mass,
     select_candidate_cjet_dphi,
 )
+
+
+# select_htt_pair_mutau placeholder: warn once per process
+_MUTAU_PLACEHOLDER_WARNED = False
 
 
 class ObjectSelector:
@@ -44,6 +63,9 @@ class ObjectSelector:
                     )
                     self.objects[obj_name][field_to_add] = selection_mask
             if "add_field" in obj_config:
+                # bring objects and year to local scope for the eval'd expressions
+                objects = self.objects
+                year = self.year
                 for field_name, field_to_add in obj_config["add_field"].items():
                     self.objects[obj_name][field_name] = eval(field_to_add)
             if "cuts" in obj_config:
@@ -495,230 +517,267 @@ class ObjectSelector:
         )
 
     # --------------------------------------------------------------------------------
-    # HWW
+    # Jets (shared by the H+c workflows)
     # --------------------------------------------------------------------------------
-    def select_hww_leptons(self, obj_name):
-        # set 'leptons' by concatenating electrons and muons
-        leptons = ak.concatenate(
-            [self.objects["muons"], self.objects["electrons"]], axis=1
-        )
-        leptons = leptons[ak.argsort(leptons.pt, ascending=False, axis=1)]
-        self.objects[obj_name] = ak.zip(
-            {
-                "pt": leptons.pt,
-                "eta": leptons.eta,
-                "phi": leptons.phi,
-                "mass": leptons.mass,
-                "charge": leptons.charge,
-                "pdgId": leptons.pdgId,
-            },
-            with_name="PtEtaPhiMCandidate",
-            behavior=candidate.behavior,
-        )
-
-    def select_hww_ll_pair(self, obj_name):
-        has_lepton = ak.num(self.objects["leptons"]) >= 1
-        #self.objects["first_leptons"] = ak.where(has_lepton, self.objects["leptons"][:, 0], None)
-
-        has_second = ak.num(self.objects["leptons"]) >= 2
-        #self.objects["second_leptons"] = ak.where(has_second, self.objects["leptons"][:, 1], None)
-
-        self.objects["dilepton"] = ak.where(has_second, self.objects["leptons"][:, :2], None)
-        has_two = ak.num(self.objects["leptons"], axis=1) >= 2
-        dilepton_masked = ak.mask(self.objects["leptons"], has_two)
-        dilepton = dilepton_masked[:, :2]
-        self.objects["dilepton"] = dilepton
-
-        self.objects["ll_pair"] = ak.combinations(
-            self.objects["dilepton"], 2, fields=["l1", "l2"]
-        )
-        self.objects["ll_pair"].pt = (
-            self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2
-        ).pt
-        self.objects["ll_pair"].eta = (
-            self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2
-        ).eta
-        self.objects["ll_pair"].phi = (
-            self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2
-        ).phi
-        self.objects["ll_pair"].mass = (
-            self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2
-        ).mass
-    def select_hww_mTll(self, obj_name):
-        self.objects["mTll"] = transverse_mass(
-            self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2,
-            self.objects["met"],
-        )
-
-    def select_hww_mTl1(self, obj_name):
-        self.objects["mTl1"] = transverse_mass(
-            self.objects["ll_pair"].l1, self.objects["met"]
-        )
-
-    def select_hww_mTl2(self, obj_name):
-        self.objects["mTl2"] = transverse_mass(
-            self.objects["ll_pair"].l2, self.objects["met"]
-        )
+    def _cvl_field(self):
+        return "btagUParTAK4CvL" if get_nano_version(self.year) == "15" else "btagPNetCvL"
 
     def select_candidate_cjet(self, obj_name):
-        self.objects["candidate_cjet"] = self.objects["cjets"][
-            ak.argmax(self.objects["cjets"].btagPNetCvL, axis=1)
-            == ak.local_index(self.objects["cjets"], axis=1)
+        """the c-jet candidate is the c-tagged jet with the highest CvL score
+        (UParT for NanoAODv15, ParticleNet otherwise)"""
+        cjets = self.objects["cjets"]
+        score = cjets[self._cvl_field()]
+        self.objects["candidate_cjet"] = cjets[
+            ak.argmax(score, axis=1) == ak.local_index(cjets, axis=1)
         ]
-        self.objects["candidate_cjet_lorentzvector"] = ak.zip(
-            {
-                "pt": self.objects["candidate_cjet"].pt,
-                "eta": self.objects["candidate_cjet"].eta,
-                "phi": self.objects["candidate_cjet"].phi,
-                "mass": self.objects["candidate_cjet"].mass,
-            },
-            with_name="PtEtaPhiMCandidate",
-            behavior=candidate.behavior,
+        self.objects["candidate_cjet_lorentzvector"] = to_candidates(
+            self.objects["candidate_cjet"]
         )
 
-
-    def select_candidate_bjet(self, obj_name):
-        self.objects["candidate_bjet"] = self.objects["bjets"][
-            ak.argmax(self.objects["bjets"].btagPNetB, axis=1)
-            == ak.local_index(self.objects["bjets"], axis=1)
-        ]
+    JET_FIELDS = (
+        "hadronFlavour",
+        "partonFlavour",
+        "btagUParTAK4CvL",
+        "btagUParTAK4CvB",
+        "btagUParTAK4B",
+        "btagPNetCvL",
+        "btagPNetCvB",
+        "btagPNetB",
+        "btagDeepFlavCvL",
+        "btagDeepFlavCvB",
+        "btagDeepFlavB",
+    )
 
     def select_leading_jets(self, obj_name):
-        # sort jets by pt in descending order (first element has highest pt ...)
-        jets = self.objects["jets"]
-        jets = jets[ak.argsort(jets.pt, ascending=False, axis=1)]
-        jets = ak.pad_none(self.objects['jets'], target=3)
-        def make_candidate(jet):
-            return ak.zip(
-                {
-                    "pt": jet.pt,
-                    "eta": jet.eta,
-                    "phi": jet.phi,
-                    "mass": jet.mass,
-                },
-                with_name="PtEtaPhiMCandidate",
-                behavior=candidate.behavior,
-            )
-        self.objects["jet1"] = make_candidate(jets[:, 0])
-        self.objects["jet2"] = make_candidate(jets[:, 1])
-        self.objects["jet3"] = make_candidate(jets[:, 2])
+        """jet1/jet2/jet3 = the three highest-pT selected jets (padded with None) as
+        per-event candidates carrying the flavour and tagger fields"""
+        jets = pt_sorted(self.objects["jets"])
+        padded = ak.pad_none(jets, target=3)
+        for i in range(3):
+            self.objects[f"jet{i + 1}"] = to_candidates(padded[:, i], self.JET_FIELDS)
 
-    def select_delta_phi(self, obj_name):
-        ll_plus_met = self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2 + self.objects["met"]
-        ll_plus_met = ak.firsts(ll_plus_met)
-        l1_plus_met = self.objects["ll_pair"].l1 + self.objects["met"]
-        l1_plus_met = ak.firsts(l1_plus_met)
-        cjet = ak.firsts(self.objects["candidate_cjet_lorentzvector"])
-        self.objects["delta_phi_llPlusMET_c"] = ll_plus_met.delta_phi(cjet)
-        self.objects["delta_phi_l1PlusMET_c"] = l1_plus_met.delta_phi(cjet)
+    # --------------------------------------------------------------------------------
+    # H -> tautau: generator level
+    # --------------------------------------------------------------------------------
+    def select_gen_htautau(self, obj_name):
+        """gen-level decay channel + generator objects of the H -> tautau system.
+        Data (no GenPart) gets channel 0 and empty collections."""
+        ev = self.events
+        if "GenPart" not in ev.fields:
+            # data: channel 0, empty collections, and per-event placeholders carrying the SAME
+            # fields as the MC branch (all None) so that every axis expression still resolves
+            nan = ak.values_astype(ak.zeros_like(ev.event), np.float32) * np.nan
+            zeros = ak.values_astype(ak.zeros_like(ev.event), np.int32)
+            empty = ev.Jet[:, :0]
+            self.objects["gen_channel"] = zeros
+            for name in ("gen_leptons", "gen_muons", "gen_electrons", "gen_taus",
+                         "gen_vistaus", "gen_higgs", "gen_hfquarks", "gen_jets"):
+                self.objects[name] = empty
 
-        self.objects["delta_phi_l1PlusMET_jet1"] = l1_plus_met.delta_phi(self.objects["jet1"])
-        self.objects["delta_phi_l1PlusMET_jet2"] = l1_plus_met.delta_phi(self.objects["jet2"])
-        self.objects["delta_phi_l1PlusMET_jet3"] = l1_plus_met.delta_phi(self.objects["jet3"])
-
-        self.objects["delta_phi_llPlusMET_jet1"] = ll_plus_met.delta_phi(self.objects["jet1"])
-        self.objects["delta_phi_llPlusMET_jet2"] = ll_plus_met.delta_phi(self.objects["jet2"])
-        self.objects["delta_phi_llPlusMET_jet3"] = ll_plus_met.delta_phi(self.objects["jet3"])
-
-        self.objects["delta_phi_ll_MET"] = (
-            (self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2).delta_phi(self.objects["met"])
-        )
-        self.objects["delta_phi_l1_MET"] = (
-            self.objects["ll_pair"].l1.delta_phi(self.objects["met"])
-        )
-        self.objects["delta_phi_l2_MET"]= (
-            self.objects["ll_pair"].l2.delta_phi(self.objects["met"])
-        )
-
-    def select_delta_R(self, obj_name):
-        ll_pair = self.objects["ll_pair"].l1 + self.objects["ll_pair"].l2
-        ll_pair = ak.firsts(ll_pair)
-
-        self.objects["delta_R_ll_jet1"] = ll_pair.delta_r(self.objects["jet1"])
-        self.objects["delta_R_ll_jet2"] = ll_pair.delta_r(self.objects["jet2"])
-        self.objects["delta_R_ll_jet3"] = ll_pair.delta_r(self.objects["jet3"])
-
-        self.objects["delta_R_ll_l1"]= (
-            ll_pair.delta_r(self.objects["ll_pair"].l1)
-        )
-        self.objects["delta_R_ll_l2"]= (
-            ll_pair.delta_r(self.objects["ll_pair"].l2)
-        )
-        cjet = ak.firsts(self.objects["candidate_cjet_lorentzvector"])
-        self.objects["delta_R_ll_c"]= (
-            ll_pair.delta_r(cjet)
-        )
-
-    def select_gen_partons(self, obj_name):
-        # Generator-level LHE partons for the negative-weight reweighting fix
-        # (arXiv:2510.16217). g(x)=2*P+(x)-1 is learned from the hard-process
-        # parton kinematics, which live in LHEPart (status==1 = outgoing). We
-        # keep the outgoing quarks/gluons (|pdgId|<=5 or ==21; drops the status-1
-        # leptons), sort by pt, and expose the leading 5 as per-event candidates
-        # plus multiplicity / hardness-count / incoming-flavour scalars. Mirrors
-        # select_leading_jets. MC-only: guarded on LHEPart being present (data has
-        # no gen info, and this object is only requested by the gen-rw workflows).
-        if "LHEPart" not in self.events.fields or "LHE" not in self.events.fields:
-            # data (or a sample without LHE info): emit empty placeholders so the
-            # axis expressions still resolve to None -> firsts()==None columns.
-            z = ak.values_astype(self.events.event * 0, np.float32)
-            empty = ak.zip(
-                {"pt": z, "eta": z, "phi": z, "mass": z},
-                with_name="PtEtaPhiMCandidate", behavior=candidate.behavior,
-            )
-            for i in range(1, 6):
-                self.objects[f"genparton{i}"] = empty
-            for k in ["genparton_multiplicity", "genparton_n_pt20", "genparton_n_pt100",
-                      "genparton_n_pt200", "genparton_incoming1_pdgId",
-                      "genparton_incoming2_pdgId", "lhe_njets", "lhe_nb", "lhe_nc",
-                      "lhe_nuds", "lhe_nglu", "lhe_npnlo", "lhe_ht", "lhe_htincoming",
-                      "lhe_vpt", "lhe_alphas"]:
-                self.objects[k] = z
+            def placeholder(fields):
+                return ak.zip(
+                    {f: ak.mask(nan, ak.zeros_like(ev.event, dtype=bool)) for f in ("pt", "eta", "phi", "mass") + tuple(fields)},
+                    with_name="PtEtaPhiMCandidate", behavior=candidate.behavior,
+                )
+            for i in range(3):
+                self.objects[f"genjet{i + 1}"] = placeholder(("hadronFlavour", "partonFlavour"))
+            self.objects["gen_vistau1"] = placeholder(("status", "charge"))
+            self.objects["gen_vistau2"] = placeholder(("status", "charge"))
+            self.objects["gen_lepton"] = placeholder(("pdgId",))
+            self.objects["gen_met"] = ak.zip({"pt": nan, "phi": nan})
+            self.objects["gen_higgs_mass_vis"] = nan
+            self.objects["gen_higgs_pt_vis"] = nan
+            self.objects["gen_higgs_dr_legs"] = nan
             return
 
-        lhe = self.events.LHEPart
-        # outgoing partons: status==1, keep light quarks (b incl.) + gluon
-        out = lhe[lhe.status == 1]
-        is_parton = (np.abs(out.pdgId) <= 5) | (np.abs(out.pdgId) == 21)
-        partons = out[is_parton]
-        partons = partons[ak.argsort(partons.pt, ascending=False, axis=1)]
-
-        # multiplicity + hardness counts (the paper uses counts above thresholds)
-        self.objects["genparton_multiplicity"] = ak.num(partons)
-        self.objects["genparton_n_pt20"] = ak.sum(partons.pt > 20, axis=1)
-        self.objects["genparton_n_pt100"] = ak.sum(partons.pt > 100, axis=1)
-        self.objects["genparton_n_pt200"] = ak.sum(partons.pt > 200, axis=1)
-
-        # incoming-parton flavour flags (status==-1, the 2 initial-state partons)
-        inc = lhe[lhe.status == -1]
-        inc_pdg = ak.pad_none(inc.pdgId, target=2)
-        self.objects["genparton_incoming1_pdgId"] = ak.fill_none(inc_pdg[:, 0], 0)
-        self.objects["genparton_incoming2_pdgId"] = ak.fill_none(inc_pdg[:, 1], 0)
-
-        # leading-5 parton four-vectors as candidates (pad so [:, i] is safe)
-        partons = ak.pad_none(partons, target=5)
-        def make_candidate(p):
+        gp = ev.GenPart
+        channel, leptons_from_tau, hard_taus = gen_htautau_channel(ev)
+        self.objects["gen_channel"] = channel
+        self.objects["gen_leptons"] = pt_sorted(leptons_from_tau)
+        self.objects["gen_muons"] = pt_sorted(leptons_from_tau[np.abs(leptons_from_tau.pdgId) == 13])
+        self.objects["gen_electrons"] = pt_sorted(leptons_from_tau[np.abs(leptons_from_tau.pdgId) == 11])
+        self.objects["gen_taus"] = hard_taus
+        # visible hadronic taus of the hard-process taus only (GenVisTau also lists tau_h from
+        # B/D decays); the mother of a GenVisTau is the tau
+        vistaus = ev.GenVisTau
+        vis_from_hard = ak.fill_none(vistaus.parent.hasFlags(["isHardProcess"]), False)
+        self.objects["gen_vistaus"] = pt_sorted(vistaus[vis_from_hard])
+        self.objects["gen_higgs"] = gp[(gp.pdgId == 25) & gp.hasFlags(["isLastCopy"])]
+        # OUTGOING hard-process heavy-flavour quark(s) of the associated production
+        # (status 21 = incoming beam partons, which also carry isHardProcess)
+        self.objects["gen_hfquarks"] = pt_sorted(
+            gp[((np.abs(gp.pdgId) == 4) | (np.abs(gp.pdgId) == 5)) & gp.hasFlags(["isHardProcess"]) & (gp.status != 21)]
+        )
+        # gen jets cleaned against the visible tau decay products (otherwise the leading gen
+        # jets are simply the tau_h / the lepton)
+        genjets = ev.GenJet
+        genjets = genjets[
+            delta_r_higher(genjets, self.objects["gen_vistaus"], 0.4)
+            & delta_r_higher(genjets, self.objects["gen_leptons"], 0.4)
+        ]
+        genjets = pt_sorted(genjets)
+        self.objects["gen_jets"] = genjets
+        padded = ak.pad_none(genjets, target=3)
+        for i in range(3):
+            self.objects[f"genjet{i + 1}"] = to_candidates(padded[:, i], ("hadronFlavour", "partonFlavour"))
+        vis = ak.pad_none(self.objects["gen_vistaus"], target=2)
+        self.objects["gen_vistau1"] = to_candidates(vis[:, 0], ("status", "charge"))
+        self.objects["gen_vistau2"] = to_candidates(vis[:, 1], ("status", "charge"))
+        self.objects["gen_lepton"] = to_candidates(
+            ak.pad_none(self.objects["gen_leptons"], target=1)[:, 0], ("pdgId",)
+        )
+        self.objects["gen_met"] = ev.GenMET
+        # gen-level visible di-tau system: the two visible legs of the hard-process taus
+        # (lepton + tau_h, or the two tau_h), in the full phase space
+        def to_vectors(coll):
+            # plain Lorentz vectors (GenPart carries no charge -> no PtEtaPhiMCandidate)
             return ak.zip(
-                {"pt": p.pt, "eta": p.eta, "phi": p.phi, "mass": p.mass},
-                with_name="PtEtaPhiMCandidate", behavior=candidate.behavior,
+                {"pt": coll.pt, "eta": coll.eta, "phi": coll.phi, "mass": coll.mass},
+                with_name="PtEtaPhiMLorentzVector", behavior=vector.behavior,
             )
-        for i in range(5):
-            self.objects[f"genparton{i + 1}"] = make_candidate(partons[:, i])
+        gen_legs = pt_sorted(ak.concatenate(
+            [to_vectors(self.objects["gen_leptons"]), to_vectors(self.objects["gen_vistaus"])], axis=1
+        ))
+        gen_legs = ak.pad_none(gen_legs, target=2)
+        gen_vis = gen_legs[:, 0] + gen_legs[:, 1]
+        self.objects["gen_higgs_mass_vis"] = gen_vis.mass
+        self.objects["gen_higgs_pt_vis"] = gen_vis.pt
+        self.objects["gen_higgs_dr_legs"] = gen_legs[:, 0].delta_r(gen_legs[:, 1])
 
-        # LHE merging/kinematic summary scalars — the FxFx samples are inclusive
-        # (LHE.Njets~0.6, most events are 0/1-parton ME; extra jets from the shower),
-        # so per-event ME multiplicity is low and the paper's hand-built "parton
-        # counts / HT / V-pT" features are already provided by NanoAOD's LHE block.
-        # These are flat per-event scalars (dump directly, no firsts()). They are the
-        # backbone of x for P+(x); the leading-parton kinematics above supplement them.
-        lhe = self.events.LHE
-        self.objects["lhe_njets"] = ak.values_astype(lhe.Njets, np.float32)
-        self.objects["lhe_nb"] = ak.values_astype(lhe.Nb, np.float32)
-        self.objects["lhe_nc"] = ak.values_astype(lhe.Nc, np.float32)
-        self.objects["lhe_nuds"] = ak.values_astype(lhe.Nuds, np.float32)
-        self.objects["lhe_nglu"] = ak.values_astype(lhe.Nglu, np.float32)
-        self.objects["lhe_npnlo"] = ak.values_astype(lhe.NpNLO, np.float32)
-        self.objects["lhe_ht"] = lhe.HT
-        self.objects["lhe_htincoming"] = lhe.HTIncoming
-        self.objects["lhe_vpt"] = lhe.Vpt
-        self.objects["lhe_alphas"] = lhe.AlphaS
+    # --------------------------------------------------------------------------------
+    # H -> tautau: reconstructed di-tau pair
+    # --------------------------------------------------------------------------------
+    def _store_pair(self, pairs):
+        # keep the best-ranked candidate only (jagged with 0/1 entries so that the
+        # yaml `cuts` (opposite sign, ...) still apply)
+        self.objects["htt_pair"] = pairs[:, :1]
+
+    def select_htt_pair_mutau(self, obj_name):
+        """TODO (mu tau_h): build the (muon, tau_h) pair candidates and keep the best-ranked one,
+        as select_htt_pair_etau does below (build_htt_pair + a ranking recipe in htautau.py).
+
+        Placeholder: stores an EMPTY pair collection (with the right l1 = muon / l2 = tau_h record
+        structure), so the workflow runs but every pair-based selection is empty."""
+        global _MUTAU_PLACEHOLDER_WARNED
+        if not _MUTAU_PLACEHOLDER_WARNED:
+            _MUTAU_PLACEHOLDER_WARNED = True
+            warnings.warn(
+                "select_htt_pair_mutau is a placeholder: no mu tau_h pair is built "
+                "(analysis/selections/object_selections.py)",
+                RuntimeWarning,
+            )
+        pairs = ak.cartesian({"l1": self.objects["muons"], "l2": self.objects["taus"]}, axis=1)
+        self._store_pair(pairs[:, :0])
+
+    def select_htt_pair_etau(self, obj_name):
+        self._store_pair(build_htt_pair(self.objects["electrons"], self.objects["taus"], False, RANK_ETAU))
+
+    def select_htt_pair_tautau(self, obj_name):
+        # combinations preserve the input order, so pT-sorting the taus first
+        # guarantees l1 = the leading-pT tau_h of every candidate pair
+        taus = pt_sorted(self.objects["taus"])
+        self._store_pair(build_htt_pair(None, taus, True, RANK_TAUTAU))
+
+    def select_htt_legs(self, obj_name):
+        """per-event legs of the selected pair (option records) + the tau_h legs as a
+        jagged collection (for the tau ID scale factors) + all pair-forming leptons
+        (for the jet cleaning)"""
+        pair = self.objects["htt_pair"]
+        best = ak.firsts(pair)
+        self.objects["l1"] = best.l1
+        self.objects["l2"] = best.l2
+        is_tau = lambda leg: "decayMode" in leg.fields
+        legs = []
+        if is_tau(pair.l1):
+            legs.append(pair.l1)
+        if is_tau(pair.l2):
+            legs.append(pair.l2)
+        self.objects["htt_taus"] = ak.concatenate(legs, axis=1)
+        self.objects["htt_leptons"] = ak.concatenate(
+            [to_candidates(pair.l1), to_candidates(pair.l2)], axis=1
+        )
+        # tighter tau_h working points on the hadronic leg(s) (sensitivity studies)
+        for leg_name in ("l1", "l2"):
+            leg = self.objects[leg_name]
+            is_tau_leg = "decayMode" in leg.fields
+            for wp_name, field, idx in (("vse", "idDeepTau2018v2p5VSe", 6), ("vsmu", "idDeepTau2018v2p5VSmu", 4), ("vsjet", "idDeepTau2018v2p5VSjet", 6)):
+                self.objects[f"{leg_name}_{wp_name}_tight"] = (
+                    ak.fill_none(leg[field] >= idx, False) if is_tau_leg
+                    else ak.zeros_like(self.events.event, dtype=bool)
+                )
+        # pT-sorted leading / sub-leading objects (per-event option records) for the
+        # trigger turn-on axes -- the collections are not pT-ordered after the energy
+        # corrections, so ak.firsts(objects[...]) would not be the leading object
+        for name in ("muons", "electrons", "taus", "muons_study", "electrons_study", "taus_study"):
+            if name in self.objects:
+                padded = ak.pad_none(pt_sorted(self.objects[name]), target=2)
+                self.objects[f"{name}_lead"] = padded[:, 0]
+                self.objects[f"{name}_sublead"] = padded[:, 1]
+
+    def select_trigger_legs(self, obj_name):
+        """Trigger-object matching of the selected pair legs (2024 NanoAODv15 filter bits, see
+        TRIGOBJ_BITS in analysis/selections/trigger.py). Per-event booleans:
+          l1_match_<leg>, l2_match_<leg> for leg in the channel-relevant legs (plus the
+          TRIGOBJ_CROSS_TYPE legs, e.g. l1_match_ditau = the electron fired an HLT di-tau leg), and
+          jet_match_ditaujet = an offline jet (pT > 65, |eta| < 4.7, dR > 0.5 from both
+          legs) matched to the di-tau+jet HLT jet leg."""
+        best = self.objects["htt_pair"][:, :1]   # best-ranked pair only (jagged, 0 or 1 entry)
+        trigobjs = self.events.TrigObj
+        for leg_name in ("l1", "l2"):
+            leg = best[leg_name]
+            if "decayMode" in leg.fields:
+                kind, obj_id, dr_max = "tau", 15, 0.5
+            elif "deltaEtaSC" in leg.fields:
+                kind, obj_id, dr_max = "electron", 11, 0.1
+            else:
+                kind, obj_id, dr_max = "muon", 13, 0.1
+            for spec_name, bits in TRIGOBJ_BITS.get(kind, {}).items():
+                matched = match_trigger_objects(leg, trigobjs, obj_id, bits, dr_max)
+                self.objects[f"{leg_name}_match_{spec_name}"] = ak.fill_none(ak.firsts(matched), False)
+            for spec_name, (cross_id, bits, cross_dr) in TRIGOBJ_CROSS_TYPE.get(kind, {}).items():
+                matched = match_trigger_objects(leg, trigobjs, cross_id, bits, cross_dr)
+                self.objects[f"{leg_name}_match_{spec_name}"] = ak.fill_none(ak.firsts(matched), False)
+        # offline jet matched to the di-tau+jet jet leg (id 1, bit 17), away from both tau legs
+        jets = self.events.Jet
+        jets = jets[(jets.pt > 65) & (np.abs(jets.eta) < 4.7)]
+        jets = jets[delta_r_higher(jets, self.objects["htt_leptons"], 0.5)]
+        jet_matched = match_trigger_objects(jets, trigobjs, 1, TRIGOBJ_BITS["jet"]["ditaujet"], 0.4)
+        self.objects["jet_match_ditaujet"] = ak.fill_none(ak.any(jet_matched, axis=1), False)
+
+    def select_htt_met_vars(self, obj_name):
+        """di-tau + MET observables (per-event option floats)"""
+        l1, l2, met = self.objects["l1"], self.objects["l2"], self.objects["met"]
+        vis = l1 + l2
+        self.objects["higgs_mass_vis"] = vis.mass
+        self.objects["higgs_pt"] = vis.pt
+        self.objects["higgs_eta"] = vis.eta
+        self.objects["higgs_phi"] = vis.phi
+        self.objects["higgs_dr_legs"] = l1.delta_r(l2)
+        self.objects["higgs_dphi_legs"] = l1.delta_phi(l2)
+        self.objects["higgs_deta_legs"] = l1.eta - l2.eta
+        self.objects["higgs_charge_product"] = l1.charge * l2.charge
+        self.objects["mt_lepton_met"] = transverse_mass(l1, met)
+        self.objects["mt_tau_met"] = transverse_mass(l2, met)
+        self.objects["higgs_mt_legs"] = np.sqrt(2.0 * l1.pt * l2.pt * (1.0 - np.cos(l1.delta_phi(l2))))
+        self.objects["higgs_mt_tot"] = np.sqrt(
+            self.objects["higgs_mt_legs"] ** 2 + self.objects["mt_lepton_met"] ** 2 + self.objects["mt_tau_met"] ** 2
+        )
+        self.objects["dphi_lepton_met"] = l1.delta_phi(met)
+        self.objects["dphi_tau_met"] = l2.delta_phi(met)
+        self.objects["dphi_higgs_met"] = vis.delta_phi(met)
+        self.objects["higgs_dzeta"] = dzeta(l1, l2, met)
+        self.objects["higgs_mass_col"], self.objects["higgs_mass_col_valid"] = collinear_mass(l1, l2, met)
+        self.objects["higgs_met_pt"] = (vis + met).pt
+
+    def select_acceptance_flags(self, obj_name):
+        """gen-level kinematic acceptance of each channel (trigger-study denominators
+        evaluated on generator objects); always plain booleans"""
+        el = self.objects["gen_electrons"]
+        vt = self.objects["gen_vistaus"]
+        el_in = ((el.pt > 25) & (np.abs(el.eta) < 2.1)) | ((el.pt > 31) & (np.abs(el.eta) < 2.5))
+        tau30 = (vt.pt > 30) & (np.abs(vt.eta) < 2.3)
+        tau30_25 = (vt.pt > 30) & (np.abs(vt.eta) < 2.5)
+        fill = lambda mask: ak.fill_none(ak.values_astype(mask, bool), False)
+        # TODO (mu tau_h): in_gen_acc_mutau, the gen-level image of your mu tau_h object selection
+        self.objects["in_gen_acc_etau"] = fill(ak.any(el_in, axis=1) & ak.any(tau30, axis=1))
+        self.objects["in_gen_acc_tautau"] = fill(ak.sum(tau30_25, axis=1) >= 2)

@@ -3,7 +3,7 @@ import numpy as np
 import awkward as ak
 from analysis.working_points import working_points
 from analysis.filesets.utils import get_nano_version
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 
 
 def jet_veto(events, year: str, mapname: str = "jetvetomap"):
@@ -37,12 +37,12 @@ def jet_veto(events, year: str, mapname: str = "jetvetomap"):
         "2023postBPix": "Summer23BPixPrompt23_RunD_V1",
         "2024": "Summer24Prompt24_RunBCDEFGHI_V1",
     }
-    cset = correctionlib.CorrectionSet.from_file(correction_files["jetvetomaps"][year])
+    cset = load_correction_set(correction_files["jetvetomaps"][year])
 
     # nominal loose selection
     nano_version = get_nano_version(year)
     jet_pt = events.Jet.pt > 15
-    jets_pu_id = working_points.jet_pileup_id(events, "tight", year)
+    jets_pu_id = working_points.jet_pileup_id(events, year, "tight")
     jets_id = working_points.jet_id(
         events, year, wp="tight" if nano_version == "9" else "tightlepveto"
     )
@@ -54,7 +54,7 @@ def jet_veto(events, year: str, mapname: str = "jetvetomap"):
     j, n = ak.flatten(jets), ak.num(jets)
     jet_loose_mask = j.loose_mask
     jet_eta_mask = np.abs(j.eta) < 5.19
-    jet_phi_mask = np.abs(j.phi) < 3.14
+    jet_phi_mask = np.abs(j.phi) < 3.1415
 
     in_jet_mask = jet_loose_mask & jet_eta_mask & jet_phi_mask
     in_jets = j.mask[in_jet_mask]
@@ -63,4 +63,5 @@ def jet_veto(events, year: str, mapname: str = "jetvetomap"):
     jets_phi = ak.fill_none(in_jets.phi, 0.0)
 
     vetomap = cset[vetomap_names[year]].evaluate(mapname, jets_eta, jets_phi)
+    vetomap = ak.where(in_jet_mask, vetomap, 0.0)
     return ak.any(ak.unflatten(vetomap, n) > 0, axis=1)

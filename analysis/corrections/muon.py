@@ -6,7 +6,7 @@ from typing import Type
 from coffea.analysis_tools import Weights
 from analysis.filesets.utils import get_nano_version
 from analysis.corrections.utils import unflat_sf
-from analysis.corrections.correctionlib_files import correction_files
+from analysis.corrections.correctionlib_files import correction_files, load_correction_set
 
 
 class MuonWeights:
@@ -49,11 +49,11 @@ class MuonWeights:
         self.muons_counts = ak.num(self.muons)
 
         # get muon id/iso/HLT correction set
-        self.cset = correctionlib.CorrectionSet.from_file(
+        self.cset = load_correction_set(
             correction_files["muon"][year]
         )
         # get muon HLT eff correction set
-        self.cset_eff = correctionlib.CorrectionSet.from_file(
+        self.cset_eff = load_correction_set(
             correction_files["muon_hlt"][year]
         )
 
@@ -141,6 +141,23 @@ class MuonWeights:
                 weight=nominal_weights,
             )
 
+    def add_region_trigger_weights(self, region_mask, id_wp, iso_wp, path):
+        """Single-muon trigger scale factor for the events of one trigger region.
+
+        Called by weight_manager for `event_weights.muon.trigger: {regions: {<path>: <selection>},
+        categories: [...]}` (region_mask = that event selection; see analysis/workflows/README.md).
+
+        TODO (mu tau_h): implement it, following ElectronWeights.add_region_trigger_weights
+        (analysis/corrections/electron.py): pick the MUO correction for your trigger path and
+        (id_wp, iso_wp) denominator from self.cset, evaluate it on the leading selected muon of
+        the events in region_mask (SF = 1 elsewhere, mind the pT / eta range of the map) and add
+        it to self.weights with its up / down variations."""
+        raise NotImplementedError(
+            "MuonWeights.add_region_trigger_weights is not implemented yet "
+            "(analysis/corrections/muon.py): set `trigger: false` in event_weights.muon "
+            "until it is"
+        )
+
     def get_id_weights(self, id_wp, syst):
         """Compute muon ID weights"""
         id_corrections = {
@@ -157,9 +174,13 @@ class MuonWeights:
         in_muon_mask = muon_pt_mask & muon_eta_mask
         in_muons = self.flat_muons.mask[in_muon_mask]
 
-        # get muons pT and abseta (replace None values with some 'in-limit' value)
+        # get muons pT and eta (replace None values with some 'in-limit' value).
+        # Run 2 (nanov9) maps are binned in |eta|; the Run 3 maps (2022-2024) are
+        # binned in signed eta [-2.4, 2.4], so only take |eta| for nanov9.
         muon_pt = ak.fill_none(in_muons.pt, 15.0)
-        muon_eta = np.abs(ak.fill_none(in_muons.eta, 0.0))
+        muon_eta = ak.fill_none(in_muons.eta, 0.0)
+        if self.nano_version == "9":
+            muon_eta = np.abs(muon_eta)
 
         sfs = self.cset[id_corrections[id_wp]].evaluate(muon_eta, muon_pt, syst)
         weights = unflat_sf(
