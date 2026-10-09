@@ -182,12 +182,16 @@ def accumulate_metadata(grouped_outputs, sample):
 
 
 def accumulate_histograms(grouped_outputs, sample):
-    grouped_histograms = []
+    # running sum, one output at a time: a loaded per-job output holds ~70 MB of dense
+    # histograms, so loading all of a 600-job sample first needed ~40 GB
+    total = None
     for fname in grouped_outputs[sample]:
         output = load(fname)
         if output:
-            grouped_histograms.append(output["histograms"])
-    return accumulate(grouped_histograms)
+            # the first loaded output is the accumulator (a fresh object), the next
+            # ones are added in place
+            total = output["histograms"] if total is None else accumulate([output["histograms"]], total)
+    return total
 
 
 def read_parquet_sumw(output_dir, sample, category):

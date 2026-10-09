@@ -21,6 +21,9 @@ def register_trigger_flags(year, flags):
 
 
 def get_hltpaths_from_flag(flag, year):
+    """HLT paths (without 'HLT_') behind `flag` in `year`. A flag set to null / [] in
+    trigger_flags.yaml (no such trigger that year, e.g. TriMu 2018) gives []; an undefined
+    flag or year raises (it used to print a message and give a silent all-False mask)."""
     registered = _REGISTERED_FLAGS.get(int(year[:4]), {})
     if flag in registered:
         return registered[flag]
@@ -28,11 +31,15 @@ def get_hltpaths_from_flag(flag, year):
         f"analysis.selections", f"trigger_flags.yaml"
     ) as file:
         hlt_paths = yaml.safe_load(file)
+    if int(year[:4]) not in hlt_paths:
+        raise KeyError(f"no trigger flags defined for year {year} in trigger_flags.yaml")
     trigger_flags = hlt_paths[int(year[:4])]
-    if flag in trigger_flags:
-        return trigger_flags[flag]
-    else:
-        print(f"Trigger flag {flag} is not defined for year {year}")
+    if flag not in trigger_flags:
+        raise KeyError(
+            f"trigger flag {flag!r} is not defined for year {year} (trigger_flags.yaml "
+            f"or register_trigger_flags); defined: {sorted(set(trigger_flags) | set(registered))}"
+        )
+    return list(trigger_flags[flag] or [])
 
 
 _missing_hlt_warned = set()
@@ -120,22 +127,30 @@ def trigger_region_mask(events, hlt_paths, dataset, year, flags):
 
 def trigger_from_flag(events, flag, year):
     """OR of the HLT paths behind `flag`. Paths absent from the input file (e.g. a
-    path added mid-year, or a menu change) are skipped with a one-time warning
-    instead of raising a KeyError, so the mask is always a plain bool array."""
+    path added mid-year, or a menu change: older years list era-dependent alternatives)
+    are skipped with a one-time warning as long as at least one path of the flag is in
+    the file. If ALL paths of the flag are missing the flag cannot be evaluated and this
+    raises (a silent all-False mask would drop a whole era). A flag defined with no
+    paths (null in trigger_flags.yaml) gives an all-False mask."""
     trigger_mask = np.zeros(len(events), dtype="bool")
     hlt_paths = get_hltpaths_from_flag(flag, year)
-    if hlt_paths:
-        for hlt_path in hlt_paths:
-            if hlt_path not in events.HLT.fields:
-                if hlt_path not in _missing_hlt_warned:
-                    _missing_hlt_warned.add(hlt_path)
-                    warnings.warn(
-                        f"HLT path {hlt_path} (flag {flag}, {year}) not in the input "
-                        f"file; treated as not fired",
-                        RuntimeWarning,
-                    )
-                continue
-            trigger_mask = trigger_mask | ak.to_numpy(events.HLT[hlt_path])
+    present = [hlt_path for hlt_path in hlt_paths if hlt_path in events.HLT.fields]
+    if hlt_paths and not present:
+        raise KeyError(
+            f"none of the HLT paths of trigger flag {flag!r} ({year}) is in the input file "
+            f"{events.metadata.get('filename', '')!r}: {hlt_paths}"
+        )
+    for hlt_path in hlt_paths:
+        if hlt_path not in present:
+            if hlt_path not in _missing_hlt_warned:
+                _missing_hlt_warned.add(hlt_path)
+                warnings.warn(
+                    f"HLT path {hlt_path} (flag {flag}, {year}) not in the input "
+                    f"file; treated as not fired",
+                    RuntimeWarning,
+                )
+            continue
+        trigger_mask = trigger_mask | ak.to_numpy(events.HLT[hlt_path])
     return trigger_mask
 
 

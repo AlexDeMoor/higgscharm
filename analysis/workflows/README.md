@@ -54,6 +54,9 @@ datasets:
 ```
 - Each item refers to the `key` field defined in the fileset YAML
 - This section is used by the job submission script `runner.py` to determine which samples are to be run
+- `data_blinded` (optional group): data keys that are defined and validated but **never processed**: `runner.py`, `jobs_status.py` and the postprocess only read `data`, `mc` and `signal`, and `run_postprocess.py` forces `--blind` when there is no `data` group. The H→ττ channels list their primary datasets here; rename the group to `data:` to unblind.
+- `get_datasets_to_run_over` raises on a key that no fileset yaml of any year defines (typo) and on an unknown group; keys that exist only for other years are skipped with one summary warning.
+- With `extends`, the groups are deep-merged: the H→ττ common include holds `signal` and `mc`, each channel adds its `data_blinded`.
 
 
 * `object_selection`: Contains the information required for object selection:
@@ -160,6 +163,15 @@ event_selection:
 - `categories`: Named groups of selections that define analysis regions. Each category defines a region for histogram filling and postprocessing (a workflow must define at least one). The per-category masks are exposed to the histogram expressions as `category_masks[<category>]` (e.g. a Boolean "passes the reco selection" axis inside a gen-level category).
 - Selections are evaluated in order (all of them, whether a category uses them or not) and every selection may refer to the ones defined before it as `selection_masks['<name>']` (e.g. `trigger: selection_masks['trig_singleele'] | selection_masks['trig_crossele']`); the same dictionary is in scope for the histogram-axis expressions. A selection must be a per-event boolean without `None` (`ak.fill_none(..., False)`); at most 32 selections per workflow.
 - Trigger helpers in the event-selection scope: `get_trigger_flag_mask(events, '<flag>', year)` (one HLT path), `get_trigger_flags_or(events, [flags], year)` (pure OR, no primary-dataset exclusivity — for study axes) and `get_trigger_region_mask(events, hlt_paths, dataset, year, [flags])` (OR of the flags of one trigger region, PD-exclusive on data following the `hlt_paths` order). `get_trigger_mask` raises for a data primary dataset that is not listed in `hlt_paths`. Trigger-object matching flags come from the `select_trigger_legs` object method (`analysis/selections/trigger.py: match_trigger_objects`, `TRIGOBJ_BITS`).
+- Fail-loud checks: an undefined trigger flag (or a year without flags) raises; a flag set to `null` / `[]` for a year (e.g. `TriMu` 2018) is an all-False mask. HLT paths of a flag that are absent from the input file are skipped with a one-time warning as long as at least one path of the flag is present; if all of them are absent the job raises. `get_metfilters_mask` raises when a MET filter of `analysis/data/met/metfilters.json` (or the year) is missing.
+
+- `mc_only_categories` (optional): list of category names or `fnmatch` patterns (`gen_*`) that are not filled for data — no histograms, no parquets and no cutflow in data outputs (their bins stay empty in the data histograms). Use it for the categories that are meaningless on data (gen-level, object-level study denominators without lumimask / MET filters) or double counted on data (a selection without a trigger requirement is filled once per primary dataset). Every entry must match at least one category (checked at config parse time).
+```yaml
+event_selection:
+  mc_only_categories: [gen_etau, den_etau_study, sel_etau, sel_etau_trig_genetau]
+```
+
+- Cutflow (`metadata[<category>]["cutflow"]` genWeight-weighted, `["cutflow_raw"]` unweighted; nominal shift only): `initial` = the chunk before the jet veto map (the same events as `metadata["sumw"]`), `jet_veto` = after the jet veto map (equal to `initial` when `jetveto` is not in `corrections.object`), then one row per cut of the category. Data: weight 1.
 
 
 

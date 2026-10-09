@@ -26,6 +26,19 @@ def move_proxy() -> str:
     return x509_path
 
 
+def write_condor_file(template_file, condor_file, replacements):
+    """Fill the condor submit template (condor/submit.sub): every key of `replacements`
+    (CONDORDIR, BASEDIR, X509PATH, LOGDIR, JOBNAME, INPUTFILES, JOBNUM_FILE, JOBFLAVOR,
+    IMAGE, MEMORY, NCPUS, MAXRETRIES) is replaced by its value. Keys are applied longest
+    first so that no key is a substring hit of another one."""
+    keys = sorted(replacements, key=len, reverse=True)
+    with open(template_file) as template, open(condor_file, "w") as out:
+        for line in template:
+            for key in keys:
+                line = line.replace(key, str(replacements[key]))
+            out.write(line)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -68,8 +81,8 @@ if __name__ == "__main__":
         "--nfiles",
         dest="nfiles",
         type=int,
-        default=15,
-        help="number of root files to include in each dataset partition (default 10)",
+        default=5,
+        help="number of root files per condor job (default 5)",
     )
     parser.add_argument(
         "--eos",
@@ -99,8 +112,31 @@ if __name__ == "__main__":
         "-m",
         "--memory",
         type=str,
-        default="2000",
-        help="Requested memory (in MB) for the condor job",
+        default="4000",
+        help="Requested memory (in MB) for the condor job (default 4000)",
+    )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=50000,
+        help="events per chunk (default 50000)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="worker processes per job = request_cpus (default 2)",
+    )
+    parser.add_argument(
+        "--skipbadfiles",
+        action="store_true",
+        help="skip unreadable files/chunks instead of failing the job (see submit.py)",
+    )
+    parser.add_argument(
+        "--max_retries",
+        type=int,
+        default=2,
+        help="condor reruns of a job that exits with a non-zero code (default 2)",
     )
     args = parser.parse_args()
 
@@ -155,23 +191,24 @@ if __name__ == "__main__":
 
     # make condor file
     local_condor = f"{job_dir}/{jobname}.sub"
-    with open(f"{condor_dir}/submit.sub") as condor_template_file, open(
-        local_condor, "w"
-    ) as condor_file:
-        for line in condor_template_file:
-            line = line.replace("CONDORDIR", str(condor_dir))
-            line = line.replace("BASEDIR", str(Path.cwd()))
-            line = line.replace("X509PATH", move_proxy())
-            line = line.replace("LOGDIR", str(log_dir))
-            line = line.replace("JOBNAME", jobname)
-            line = line.replace(
-                "INPUTFILES", f"{partition_file},{jobnum_file},{args_file}"
-            )
-            line = line.replace("JOBNUM_FILE", str(jobnum_file))
-            line = line.replace("JOBFLAVOR", f'"{args.jobflavor}"')
-            line = line.replace("IMAGE", f'"{args.image}"')
-            line = line.replace("MEMORY", args.memory)
-            condor_file.write(line)
+    write_condor_file(
+        condor_dir / "submit.sub",
+        local_condor,
+        {
+            "CONDORDIR": condor_dir,
+            "BASEDIR": Path.cwd(),
+            "X509PATH": move_proxy(),
+            "LOGDIR": log_dir,
+            "JOBNAME": jobname,
+            "INPUTFILES": f"{partition_file},{jobnum_file},{args_file}",
+            "JOBNUM_FILE": jobnum_file,
+            "JOBFLAVOR": f'"{args.jobflavor}"',
+            "IMAGE": f'"{args.image}"',
+            "MEMORY": args.memory,
+            "NCPUS": args.workers,
+            "MAXRETRIES": args.max_retries,
+        },
+    )
 
     if args.submit:
         subprocess.run(["condor_submit", local_condor])

@@ -12,6 +12,9 @@
 #   $PY run_local.py -w htautau_mutau -y 2024 -d HplusBottom_HtoTauTau --files <file.root> --max-chunks 1 --iterative
 # ==================================================================================
 extends: includes/htautau_common
+datasets:                          # deep-merged with the common signal + mc lists
+  data_blinded:                    # not processed (see htautau_common.yaml); `data:` to unblind
+    - muon                         # Muon0, Muon1
 object_selection:
   # TODO 1 (objects): the signal muon. Override `muons` here (an overridden key keeps its place
   #   in the build order): kinematics matched to your trigger legs, ID, isolation, impact
@@ -32,6 +35,9 @@ event_selection:
   selections:
     trigger: get_trigger_mask(events, hlt_paths, dataset, year)
     # TODO 4 (selection): the channel selections (lepton multiplicities, extra-lepton vetoes, ...)
+  # categories not filled for data (gen level, no trigger: on data the no-trigger selection
+  # would be filled once per primary dataset); extend it when you add such categories
+  mc_only_categories: [gen_mutau, sel_mutau]
   categories:
     gen_mutau:                     # truth mu tau_h, no reco requirement
       - gen_mutau

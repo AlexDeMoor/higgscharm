@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 from analysis.workflows.config import WorkflowConfigBuilder  # noqa: E402
 from scripts.htautau.common import (  # noqa: E402
     PLOTS_ROOT, plots_root, category_folder, group_of, ordered_groups, channel_of, CHANNEL_TEXT,
+    is_2d_layout,
 )
 
 DEFINITIONS = {
@@ -38,6 +39,15 @@ DEFINITIONS = {
     "n_veto_muons": "loose muons (pT>10, looseId, PFIso04<0.3, no IP cut) used for the extra-lepton veto",
     "n_veto_electrons": "loose electrons (pT>10, mvaNoIso WP90, PFIso03<0.3, no IP cut) used for the extra-lepton veto",
     "pfmet_pt": "PF MET (uncorrected)",
+    "bestcvl_pt": "the selected jet with the highest UParT CvL among ALL selected jets (c-tagged or not)",
+    "hf_tag_category": "0: no c-tagged and no b-tagged jet, 1: >= 1 c-tagged and no b-tagged jet, 2: >= 1 b-tagged jet (UParT medium)",
+    "cjet_dr_genc": "dR(c-jet candidate, nearest outgoing hard-process gen c quark); overflow when there is none (bH, light/gluon cH)",
+    "truecjet_pt_rank": "pT rank (0 = highest) of the highest-pT true c-jet (hadronFlavour 4) among the selected jets; overflow = none",
+    "truecjet_cvl_rank": "CvL rank (0 = highest) of the same jet; overflow = no true c-jet",
+    "tau_response": "reco tau_h pT (after TES) / gen visible tau_h pT, genuine tau_h only (genPartFlav 5, GenVisTau via Tau_genPartIdx)",
+    "tau_response_raw": "as tau_response with the pT before the tau energy scale",
+    "rho": "Rho_fixedGridRhoFastjetAll",
+    "pu_ntrueint": "Pileup_nTrueInt (true mean number of interactions, MC)",
 }
 
 
@@ -121,9 +131,11 @@ def make_index(workflow, year):
           + "; ".join(f"`{n}`: `{e}`" for n, e in config.event_selection["selections"].items() if n == "trigger" or n.startswith("trig_")),
           "", "## Groups", ""]
     for g in ordered_groups(config):
-        axes = [a for a in hc.axes if group_of(config, a) == g and not a.startswith(("pass_", "in_", "l1_", "l2_", "turnon_")) and not a.endswith("_wp")]
+        axes = [a for a in hc.axes if group_of(config, a) == g and not a.startswith(("pass_", "in_", "l1_", "l2_", "turnon_")) and not a.endswith(("_wp", "_2d"))]
         if g == "tau_wp_study":
             axes = [l for l in hc.layout if l.endswith("_by_tauwp")]
+        # two-axis layouts (2D maps / per-category curves), named after the layout
+        axes += [f"{l} (2D)" for l, v in hc.layout.items() if is_2d_layout(l, v) and group_of(config, l) == g]
         if axes:
             L.append(f"- **{g}/**: " + ", ".join(axes))
     L += ["", "Conventions: *leg 1* (\"lepton\") = the muon / electron / leading tau_h of the selected pair, "
@@ -131,7 +143,7 @@ def make_index(workflow, year):
           "jets 1-3 = the three highest-pT selected jets; `cjet_*` = the c-jet candidate (highest UParT CvL).",
           "", "## Glossary", "", "| file | label | definition |", "|---|---|---|"]
     for name, axis in hc.axes.items():
-        if name.startswith(("pass_", "in_", "l1_", "l2_", "turnon_")) or name.endswith("_wp"):
+        if name.startswith(("pass_", "in_", "l1_", "l2_", "turnon_")) or name.endswith(("_wp", "_2d")):
             continue
         L.append(f"| `{name}` | {strip_tex(axis.label)} | {DEFINITIONS.get(name, '')} |")
     L += ["", "Turn-on axes of the trigger study (`trigger_study/`): "

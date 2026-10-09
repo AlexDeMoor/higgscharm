@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 
 
@@ -22,21 +23,29 @@ def add_scalevar_weight(events, weights_container, shift):
     if shift is None:
         if len(lhe_weights) > 0:
             if len(lhe_weights[0]) == 9:
-                nom = lhe_weights[:, 4]
+                # the nominal weight is NOT modified (each `add` multiplies it): [4]
+                # (muR = muF = 1) is 1 in most samples but not in the 4FS t-channel
+                # single top (up to ~7 or negative), where using it as nominal x3
+                # distorted the yields. Up/down = variation / [4], relative to the
+                # central scale; coffea divides them by the (unit) nominal passed here.
+                central = lhe_weights[:, 4]
                 weights_container.add(
                     "scalevar_muR",
                     nom,
-                    lhe_weights[:, 1] / nom,
-                    lhe_weights[:, 7] / nom,
+                    lhe_weights[:, 1] / central,
+                    lhe_weights[:, 7] / central,
                 )
                 weights_container.add(
                     "scalevar_muF",
                     nom,
-                    lhe_weights[:, 3] / nom,
-                    lhe_weights[:, 5] / nom,
+                    lhe_weights[:, 3] / central,
+                    lhe_weights[:, 5] / central,
                 )
                 weights_container.add(
-                    "scalevar_muR_muF", nom, lhe_weights[:, 0], lhe_weights[:, 8]
+                    "scalevar_muR_muF",
+                    nom,
+                    lhe_weights[:, 0] / central,
+                    lhe_weights[:, 8] / central,
                 )
             elif len(lhe_weights[0]) > 1:
                 print("Scale variation vector has length ", len(lhe_weights[0]))

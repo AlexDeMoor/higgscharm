@@ -556,6 +556,14 @@ class ObjectSelector:
         for i in range(3):
             self.objects[f"jet{i + 1}"] = to_candidates(padded[:, i], self.JET_FIELDS)
 
+    def select_best_cvl_jet(self, obj_name):
+        """best_cvl_jet = the selected jet with the highest CvL score among ALL selected jets
+        (c-tagged or not; same nano-version-aware score as the c-jet candidate), as a per-event
+        candidate (None without jets) carrying the flavour and tagger fields"""
+        jets = self.objects["jets"]
+        best = ak.firsts(jets[ak.argmax(jets[self._cvl_field()], axis=1, keepdims=True)])
+        self.objects["best_cvl_jet"] = to_candidates(best, self.JET_FIELDS)
+
     # --------------------------------------------------------------------------------
     # H -> tautau: generator level
     # --------------------------------------------------------------------------------
@@ -598,9 +606,11 @@ class ObjectSelector:
         self.objects["gen_electrons"] = pt_sorted(leptons_from_tau[np.abs(leptons_from_tau.pdgId) == 11])
         self.objects["gen_taus"] = hard_taus
         # visible hadronic taus of the hard-process taus only (GenVisTau also lists tau_h from
-        # B/D decays); the mother of a GenVisTau is the tau
+        # B/D decays). The mother of a GenVisTau is the LAST copy of the tau, which carries
+        # fromHardProcess but in general not isHardProcess (that flag is on the first copy only:
+        # requiring it kept ~1/3 of the genuine visible taus)
         vistaus = ev.GenVisTau
-        vis_from_hard = ak.fill_none(vistaus.parent.hasFlags(["isHardProcess"]), False)
+        vis_from_hard = ak.fill_none(vistaus.parent.hasFlags(["fromHardProcess", "isLastCopy"]), False)
         self.objects["gen_vistaus"] = pt_sorted(vistaus[vis_from_hard])
         self.objects["gen_higgs"] = gp[(gp.pdgId == 25) & gp.hasFlags(["isLastCopy"])]
         # OUTGOING hard-process heavy-flavour quark(s) of the associated production
@@ -770,14 +780,73 @@ class ObjectSelector:
         self.objects["higgs_met_pt"] = (vis + met).pt
 
     def select_acceptance_flags(self, obj_name):
-        """gen-level kinematic acceptance of each channel (trigger-study denominators
-        evaluated on generator objects); always plain booleans"""
+        """gen-level kinematic acceptance of each channel = the pT / |eta| cuts of the reco object
+        selection (htautau_<channel>.yaml) applied to the generator leptons from tau decays and the
+        visible hard-process tau_h; always plain booleans:
+          in_gen_acc_etau   : e (pT > 25, |eta| < 2.1 or pT > 32, |eta| < 2.5) and tau_h^vis (pT > 24.6, |eta| < 2.3)
+          in_gen_acc_tautau : two tau_h^vis with pT > 24.6, |eta| < 2.1"""
         el = self.objects["gen_electrons"]
         vt = self.objects["gen_vistaus"]
-        el_in = ((el.pt > 25) & (np.abs(el.eta) < 2.1)) | ((el.pt > 31) & (np.abs(el.eta) < 2.5))
-        tau30 = (vt.pt > 30) & (np.abs(vt.eta) < 2.3)
-        tau30_25 = (vt.pt > 30) & (np.abs(vt.eta) < 2.5)
+        el_in = ((el.pt > 25) & (np.abs(el.eta) < 2.1)) | ((el.pt > 32) & (np.abs(el.eta) < 2.5))
+        tau_etau = (vt.pt > 24.6) & (np.abs(vt.eta) < 2.3)
+        tau_tautau = (vt.pt > 24.6) & (np.abs(vt.eta) < 2.1)
         fill = lambda mask: ak.fill_none(ak.values_astype(mask, bool), False)
         # TODO (mu tau_h): in_gen_acc_mutau, the gen-level image of your mu tau_h object selection
-        self.objects["in_gen_acc_etau"] = fill(ak.any(el_in, axis=1) & ak.any(tau30, axis=1))
-        self.objects["in_gen_acc_tautau"] = fill(ak.sum(tau30_25, axis=1) >= 2)
+        self.objects["in_gen_acc_etau"] = fill(ak.any(el_in, axis=1) & ak.any(tau_etau, axis=1))
+        self.objects["in_gen_acc_tautau"] = fill(ak.sum(tau_tautau, axis=1) >= 2)
+
+    # --------------------------------------------------------------------------------
+    # H+c: c-tagging truth and tau_h response (MC studies; placeholders on data)
+    # --------------------------------------------------------------------------------
+    RANK_NONE = 99   # rank of a missing object: lands in the overflow of the Integer rank axes
+
+    def select_cjet_truth(self, obj_name):
+        """c-jet truth (needs candidate_cjet, jets and the gen objects), per-event:
+          cjet_dr_genc      : dR(candidate c-jet, nearest outgoing hard-process c quark of
+                              gen_hfquarks); None without candidate or c quark (bH)
+          truecjet_pt_rank  : position in pT (0 = highest) of the highest-pT true c-jet
+                              (hadronFlavour 4) among the selected jets
+          truecjet_cvl_rank : position of the same jet in CvL (0 = highest CvL)
+        The ranks are RANK_NONE without a true c-jet. Data: all NaN."""
+        ev = self.events
+        if "GenPart" not in ev.fields:
+            nan = ak.values_astype(ak.zeros_like(ev.event), np.float32) * np.nan
+            for name in ("cjet_dr_genc", "truecjet_pt_rank", "truecjet_cvl_rank"):
+                self.objects[name] = nan
+            return
+        cand = ak.firsts(self.objects["candidate_cjet_lorentzvector"])
+        genc = self.objects["gen_hfquarks"]
+        genc = genc[np.abs(genc.pdgId) == 4]
+        self.objects["cjet_dr_genc"] = ak.min(cand.delta_r(genc), axis=1)
+        jets = pt_sorted(self.objects["jets"])
+        is_c = jets.hadronFlavour == 4
+        pt_rank = ak.firsts(ak.local_index(jets, axis=1)[is_c])
+        cvl = jets[self._cvl_field()]
+        cvl_rank = ak.sum(cvl > ak.firsts(cvl[is_c]), axis=1)
+        has_c = ~ak.is_none(pt_rank)
+        self.objects["truecjet_pt_rank"] = ak.where(has_c, ak.fill_none(pt_rank, 0), self.RANK_NONE)
+        self.objects["truecjet_cvl_rank"] = ak.where(has_c, ak.fill_none(cvl_rank, 0), self.RANK_NONE)
+
+    def select_tau_response(self, obj_name):
+        """tau_h response of the pair legs, genuine tau_h only (genPartFlav 5), per-event floats:
+          <leg>_tau_response     = reco pT (after the energy scale) / gen visible pT
+          <leg>_tau_response_raw = reco pT before the energy scale (pt_raw) / gen visible pT
+        for leg in l1, l2. For genPartFlav 5, Tau_genPartIdx indexes GenVisTau (NanoAODv15:
+        pT ratio ~1 with GenVisTau, none with GenPart), while coffea's matched_gen cross-references
+        it to GenPart: it is resolved here by hand. NaN for a non-tau leg, a non-genuine tau_h,
+        events without a pair, and on data."""
+        ev = self.events
+        nan = ak.values_astype(ak.zeros_like(ev.event), np.float32) * np.nan
+        for leg_name in ("l1", "l2"):
+            leg = self.objects[leg_name]
+            response, response_raw = nan, nan
+            if "decayMode" in leg.fields and "GenVisTau" in ev.fields:
+                vis = ev.GenVisTau
+                idx = leg.genPartIdx
+                valid = ak.fill_none((leg.genPartFlav == 5) & (idx >= 0) & (idx < ak.num(vis)), False)
+                safe_idx = ak.where(valid, ak.fill_none(idx, 0), 0)
+                gen_pt = ak.firsts(vis.pt[ak.local_index(vis, axis=1) == safe_idx])
+                response = ak.fill_none(ak.where(valid, leg.pt / gen_pt, np.nan), np.nan)
+                response_raw = ak.fill_none(ak.where(valid, leg.pt_raw / gen_pt, np.nan), np.nan)
+            self.objects[f"{leg_name}_tau_response"] = response
+            self.objects[f"{leg_name}_tau_response_raw"] = response_raw

@@ -11,8 +11,7 @@ from matplotlib import ticker
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnchoredText
 
-from analysis.filesets.utils import (get_process_era_map,
-                                     get_workflow_key_process_map)
+from analysis.filesets.utils import get_process_era_map, get_workflow_processes
 from analysis.histograms import IntegerAxis, VariableAxis
 from analysis.postprocess.utils import (divide_by_binwidth,
                                         get_variations_keys, setup_logger)
@@ -60,8 +59,8 @@ class CoffeaPlotter:
         self.process_era_map = get_process_era_map(year)
 
         # set processes -> color map
-        key_process_map = get_workflow_key_process_map(workflow_config, year)
-        processes = list(key_process_map.values())
+        # all processes of the workflow keys (a key may span several processes)
+        processes = get_workflow_processes(workflow_config, year)
         with open(color_map_file, "r") as f:
             color_map = yaml.safe_load(f)
         self.color_map = {p: c for p, c in color_map.items() if p in processes}
@@ -505,9 +504,13 @@ class CoffeaPlotter:
 
         # set limits
         hist_edges = np.array([[i, j] for i, j in zip(self.edges[:-1], self.edges[1:])])
-        xlimits = np.min(hist_edges[self.nominal_values > 0]), np.max(
-            hist_edges[self.nominal_values > 0]
-        )
+        if np.any(self.nominal_values > 0):
+            xlimits = np.min(hist_edges[self.nominal_values > 0]), np.max(
+                hist_edges[self.nominal_values > 0]
+            )
+        else:
+            # empty histogram (e.g. gen_lepton_* in the tautau gen region): full axis range
+            xlimits = self.edges[0], self.edges[-1]
         ax.set_xlim(xlimits)
         if add_ratio:
             rax.set_xlim(xlimits)
@@ -542,12 +545,14 @@ class CoffeaPlotter:
                 for i, label in enumerate(rax.get_xticklabels()):
                     if i % 5 != 0:  # Show only every 5th tick
                         label.set_visible(False)
-        # add CMS info
-        hep.cms.lumitext(
-            f"{self.luminosities[self.year] * 1e-3:.1f} fb$^{{-1}}$ ({self.year}, 13.6 TeV)",
+        # add CMS info ("Simulation" when no data are drawn); a single label call
+        # works with both mplhep 0.4 (condor image) and >= 1.0 (no cms.lumitext)
+        hep.cms.label(
+            "Preliminary",
+            data=not blind,
+            rlabel=f"{self.luminosities[self.year] * 1e-3:.1f} fb$^{{-1}}$ ({self.year}, 13.6 TeV)",
             ax=ax,
         )
-        hep.cms.text("Preliminary", ax=ax)
         # save histograms
         output_path = Path(f"{self.output_dir}/{category}")
         if not output_path.exists():
@@ -751,9 +756,10 @@ class CoffeaPlotter:
             fontsize=15,
             ncols=2,
         )
-        hep.cms.text("Preliminary", ax=ax)
-        hep.cms.lumitext(
-            f"{self.luminosities[self.year] * 1e-3:.1f} fb$^{{-1}}$ ({self.year}, 13.6 TeV)",
+        hep.cms.label(
+            "Preliminary",
+            data=True,
+            rlabel=f"{self.luminosities[self.year] * 1e-3:.1f} fb$^{{-1}}$ ({self.year}, 13.6 TeV)",
             ax=ax,
         )
         xlabel = "$p_T(e)$ [GeV]" if category == "electron" else "$p_T(\mu)$ [GeV]"

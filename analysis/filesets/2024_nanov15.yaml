@@ -238,24 +238,131 @@ EGamma1Run2024I_v2:
   process: Data
   key: electron
   xsec: None
+TauRun2024C:
+  era: C
+  query: Tau/Run2024C-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024D:
+  era: D
+  query: Tau/Run2024D-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024E:
+  era: E
+  query: Tau/Run2024E-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024F:
+  era: F
+  query: Tau/Run2024F-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024G:
+  era: G
+  query: Tau/Run2024G-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024H:
+  era: H
+  query: Tau/Run2024H-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024I:
+  era: I
+  query: Tau/Run2024I-MINIv6NANOv15-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+TauRun2024I_v2:
+  era: I
+  query: Tau/Run2024I-MINIv6NANOv15_v2-v1/NANOAOD
+  process: Data
+  key: tau
+  xsec: None
+# ---------------------------------------------------------------------------------
+# Drell-Yan, NLO FxFx, one sample per lepton flavour. Z->tautau ("DYtautau") is kept
+# apart from Z->ee/mumu ("DYll"). Do not run together with the DYto2L-*_Bin-PTLL samples.
+# MLL-50: 2124.08 pb per flavour = NNLO QCD + NLO EW (FEWZ), XSDB / cms-generators
+#   https://cms-generators.docs.cern.ch/about-cross-sections/higher-order-calculation/fewz/#dy-cross-section-results
+# MLL-10to50: XSDB, automatically computed (GenXSecAnalyzer, NLO; no NNLO value available).
+# Keys: dy_nlo (all MLL-50, used by the Z workflows) and one key per process, dy_ll / dy_tautau
+# (both mass bins), used by the H->tautau workflows.
 DYto2Mu:
   era: mc
   query: DYto2Mu-2Jets_Bin-MLL-50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v6/NANOAODSIM
-  process: DYJetsToLL
-  key: dy_nlo
-  xsec: 6662
+  process: DYll
+  key:
+    - dy_nlo
+    - dy_ll
+  xsec: 2124.08
 DYto2E:
   era: mc
   query: DYto2E-2Jets_Bin-MLL-50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v4/NANOAODSIM
-  process: DYJetsToLL
-  key: dy_nlo
-  xsec: 6639
+  process: DYll
+  key:
+    - dy_nlo
+    - dy_ll
+  xsec: 2124.08
 DYto2Tau:
   era: mc
   query: DYto2Tau-2Jets_Bin-MLL-50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v7/NANOAODSIM
-  process: DYJetsToLL
-  key: dy_nlo
-  xsec: null   # TO BE SET from XSDB before use (get_lumi_weight raises on null); NOT a DYto2L subset -> do not run together with DYto2L
+  process: DYtautau
+  key:
+    - dy_nlo
+    - dy_tautau
+  xsec: 2124.08
+DYto2Mu_MLL10to50:
+  era: mc
+  query: DYto2Mu-2Jets_Bin-MLL-10to50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: DYll
+  key: dy_ll
+  xsec: 7020.0
+DYto2E_MLL10to50:
+  era: mc
+  query: DYto2E-2Jets_Bin-MLL-10to50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: DYll
+  key: dy_ll
+  xsec: 7076.7
+DYto2Tau_MLL10to50:
+  era: mc
+  query: DYto2Tau-2Jets_Bin-MLL-10to50_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: DYtautau
+  key: dy_tautau
+  xsec: 7100.0
+# ---------------------------------------------------------------------------------
+# W+jets, inclusive NLO FxFx, one sample per lepton flavour (no inclusive WtoLNu-2Jets or
+# -4Jets exists in this campaign; all WtoLNu samples are binned in jets/pT/HT/mass).
+# xsec per flavour = NNLO QCD x NNLO EW (MATRIX, PDG 2025 values), cms-generators W+jets table:
+#   https://twiki.cern.ch/twiki/bin/viewauth/CMS/MATRIXCrossSectionsat13p6TeV
+#   e 21132.0, mu 21132.0, tau 21449.0 pb (the table lists the WtoENu-2Jets entry as "LO, GenXSAnalyzer"
+#   with the same 21132.0 as mu: taken as the NNLO value). Sum 63713 pb.
+# Do NOT use GenXSecAnalyzer on the MiniAOD of these samples: it gives 67.7 / 68.2 / 67.7 nb (e / mu / tau),
+#   i.e. the three-flavour WtoLNu-2Jets value, with 0 % negative weights while the NanoAOD has ~16 %.
+WtoENu:
+  era: mc
+  query: WtoENu-2Jets_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v3/NANOAODSIM
+  process: Wjets
+  key: wjets_nlo
+  xsec: 21132.0
+WtoMuNu:
+  era: mc
+  query: WtoMuNu-2Jets_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v3/NANOAODSIM
+  process: Wjets
+  key: wjets_nlo
+  xsec: 21132.0
+WtoTauNu:
+  era: mc
+  query: WtoTauNu-2Jets_TuneCP5_13p6TeV_amcatnloFXFX-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v3/NANOAODSIM
+  process: Wjets
+  key: wjets_nlo
+  xsec: 21449.0
 TTto2L2Nu:
   era: mc
   query: TTto2L2Nu_TuneCP5_13p6TeV_powheg-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v3/NANOAODSIM
@@ -294,6 +401,12 @@ TWminustoLNu2Q:
   process: Single Top
   key: singletop
   xsec: 19.31
+# t-channel single top, 4FS decay-split (powheg-madspin), cms-generators single-top table:
+#   inclusive (TOP-22-012): top (TBbarQ) 145.0 pb, antitop (TbarBQ) 87.2 pb
+#   LNu: NNLO, https://twiki.cern.ch/twiki/bin/view/LHCPhysics/SingleTopNNLORef with PDG 2025 values:
+#        TBbarQtoLNu 47.4, TbarBQtoLNu 28.5 pb (= 0.327 x inclusive)
+#   2Q:  the table's GenXSecAnalyzer 4FS values, TBbarQto2Q 77.26, TbarBQto2Q 46.73 pb (user choice 2026-10-08).
+#        Note: inclusive - LNu would give 97.6 / 58.7 pb (2Q + LNu = 124.7 / 75.2 vs 145.0 / 87.2 inclusive).
 TbarBQto2Q:
   era: mc
   query: TbarBQto2Q-t-channel-4FS_TuneCP5_13p6TeV_powheg-madspin-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
@@ -305,7 +418,7 @@ TbarBQtoLNu:
   query: TbarBQtoLNu-t-channel-4FS_TuneCP5_13p6TeV_powheg-madspin-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
   process: Single Top
   key: singletop
-  xsec: 23.34
+  xsec: 28.5
 TbarWplusto2L2Nu:
   era: mc
   query: TbarWplusto2L2Nu_TuneCP5_13p6TeV_powheg-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
@@ -335,7 +448,7 @@ TBbarQtoLNu:
   query: TBbarQtoLNu-t-channel-4FS_TuneCP5_13p6TeV_powheg-madspin-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
   process: Single Top
   key: singletop
-  xsec: 38.6
+  xsec: 47.4
 WW:
   era: mc
   query: WW_TuneCP5_13p6TeV_pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
@@ -446,6 +559,56 @@ TTH_Hto2Z:
   process: H(125) 
   key: higgs
   xsec: 0.00312
+# ---------------------------------------------------------------------------------
+# SM H(125) backgrounds (no ttH->tautau or ggZH->tautau sample exists in this campaign).
+# sigma: LHC Higgs WG 13.6 TeV ("ad interim" extrapolation, mH = 125.00 GeV),
+#   https://twiki.cern.ch/twiki/bin/view/LHCPhysics/LHCHWG136TeVxsec_extrap
+# BR(H -> tautau) = 0.0627, as for the H+c/H+b signal entries below.
+#   ggH  52.23 pb (N3LO QCD + NLO EW)          x 0.0627 = 3.2748 pb
+#   VBF  4.078 pb                              x 0.0627 = 0.25569 pb
+#   W+H  0.8889 pb, W-H 0.5677 pb              x 0.0627 = 0.055734 / 0.035595 pb
+#   ZH   quark-initiated only (powhegMINNLO): ZH total 0.9439 - ggZH 0.1360 = 0.8079 pb x 0.0627 = 0.050655 pb
+#        (ggZH -> tautau, 0.1360 x 0.0627 = 8.5 fb, is not covered by any sample)
+#   ttH  0.5700 pb x (1 - BR(H -> bb) = 1 - 0.5824, YR4 mH = 125.00, TO CONFIRM) = 0.23803 pb;
+#        TTH-HtoNon2B = every H decay except bb (WW, tautau, ZZ, gg, gamma gamma, ...), not H -> tautau only.
+# WH/ZH samples use "UncorrelatedDecay" (tau spin correlations off), unfiltered.
+# One key per process (get_workflow_key_process_map keeps one process per key).
+GluGluHto2Tau:
+  era: mc
+  query: GluGluHto2Tau_Par-M-125_TuneCP5_13p6TeV_powhegMINNLO-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: ggH_htt
+  key: ggh_tautau
+  xsec: 3.2748
+VBFHto2Tau:
+  era: mc
+  query: VBFH-HTo2Tau_Par-M-125_TuneCP5_13p6TeV_powheg-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: qqH_htt
+  key: qqh_tautau
+  xsec: 0.25569
+WplusH_Hto2Tau:
+  era: mc
+  query: WplusH-Hto2TauUncorrelatedDecay_Par-M-125_TuneCP5_13p6TeV_powhegMINNLO-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: VH_htt
+  key: vh_tautau
+  xsec: 0.055734
+WminusH_Hto2Tau:
+  era: mc
+  query: WminusH-Hto2TauUncorrelatedDecay_Par-M-125_TuneCP5_13p6TeV_powhegMINNLO-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: VH_htt
+  key: vh_tautau
+  xsec: 0.035595
+ZH_Hto2Tau:
+  era: mc
+  query: ZH-Hto2TauUncorrelatedDecay_Par-M-125_TuneCP5_13p6TeV_powhegMINNLO-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v6/NANOAODSIM
+  process: VH_htt
+  key: vh_tautau
+  xsec: 0.050655
+TTH_HtoNon2B:
+  era: mc
+  query: TTH-HtoNon2B_Par-M-125_TuneCP5_13p6TeV_powheg-pythia8/RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2-v2/NANOAODSIM
+  process: ttH_nonbb
+  key: tth_nonbb
+  xsec: 0.23803
 # ---------------------------------------------------------------------------------
 # Private Summer24 FullSim productions (NanoAODv15, HLT menu 2024v14), H -> tautau
 # exclusive, no generator filter. xsec = sigma(pp -> H + c/b) x BR(H -> tautau):

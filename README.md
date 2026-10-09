@@ -5,8 +5,9 @@
 Columnar CMS analysis package ([coffea](https://coffeateam.github.io/coffea/) 0.7 +
 [scikit-hep](https://scikit-hep.org)) that turns NanoAOD into histograms. The analysis on this branch
 is **cH, H→ττ + charm** (Higgs boson produced with a charm quark) on 2024 data / Summer24 MC
-(NanoAODv15), in three channels: μτh, eτh and τhτh. The signal (cH, H→ττ) and the main
-background (bH, H→ττ) are private FullSim productions; the DAS backgrounds and the data come later.
+(NanoAODv15), in three channels: μτh, eτh and τhτh. There are two signals, cH and bH (H→ττ), both
+private FullSim productions, for a measurement of the cH and bH cross sections (and their ratio); the
+DAS backgrounds are configured and the data come later.
 
 | read | for |
 |---|---|
@@ -153,6 +154,21 @@ $PY fetch.py -y 2024                   # DAS datasets (needs a VOMS proxy; runs 
 Options: `-y {2016preVFP, ..., 2023postBPix, 2024}`, `--samples <names>` (a subset), `-s/--signal`
 (also the signal), `--site` (redirector for private samples). The JSON is generated, not versioned.
 
+The 2024 file also holds the H→ττ backgrounds (DY split into `DYll` / `DYtautau`, MLL-10to50 and
+MLL-50; W+jets per flavour, NNLO xsec; tt, single top, diboson; SM H→ττ) and the `Tau`, `Muon0/1`,
+`EGamma0/1` data (see [`README_HToTauTau.md`](README_HToTauTau.md#samples)).
+
+**`fetch.py` for DAS samples from this EOS checkout**: the coffea-dask container cannot enter
+`/eos/home-*` (permission denied, also with `-B /eos`). Workaround: copy `analysis/` (with the
+current yaml, JSON and `utils.py`) to a directory under `/tmp`, run `make_filesets` there in the
+container for the samples you need, then install the result with a write-to-`.new` + `mv` after
+checking that the repo JSON did not change in the meantime (the JSON is never half-written).
+
+**Dataset keys.** `get_datasets_to_run_over` raises on a workflow key that no fileset yaml of any year
+defines (typo) and on an unknown `datasets:` group; keys that exist only for other years are skipped
+with one summary warning. Only the groups `data`, `mc` and `signal` are run: `data_blinded` keys are
+validated but never processed.
+
 ---
 
 ## 5. Workflows
@@ -210,13 +226,36 @@ file name).
 
 ```bash
 voms-proxy-init --voms cms --valid 192:00
+module load lxbatch/eossubmit        # this checkout is on EOS: the standard schedds refuse /eos paths in a submit file
 $PY runner.py -w <workflow> -y 2024 --submit --eos --output_format coffea -m 4000   # without --submit: only builds the job files
 $PY jobs_status.py -w <workflow> -y 2024 --eos --output_format coffea               # missing / failed jobs, resubmission
 ```
 
 Jobs run in the `coffea-base-almalinux9:0.7.30-py3.10` image and `cd` into this repository on EOS,
 so they run the code as it is **at execution time**: do not edit it while jobs are queued, and
-validate one job before a campaign. `submit_condor.py` submits a single dataset.
+validate one job before a campaign. `submit_condor.py` submits a single dataset. Because the repo, `condor/`
+and the logs are on EOS, submit through the **EosSubmit** schedds (`module load lxbatch/eossubmit` in the
+shell that runs `runner.py` / `jobs_status.py`); they require one user log per cluster (`condor/submit.sub`).
+
+`runner.py` / `submit_condor.py` options: `--nfiles` (files per job, default **5**: the heaviest MC job,
+5 tt files of ~3M events, takes ~45 min; a failed job is rerun as a whole), `-m/--memory` (default **4000** MB; a worker uses ~1.2 GB
+with nominal only, so 2000 runs out of memory), `--chunksize` (default 50000), `--workers` (default 2;
+the submit file sets `request_cpus` to it), `--max_retries` (default 2, condor-level reruns of a job
+with a non-zero exit code; note that it also reruns deterministic failures), `--skipbadfiles`
+(opt-in: unreadable files are skipped with a warning; MC stays normalised, but data silently loses
+luminosity and the job still counts as done). coffea 0.7.30 cannot retry a chunk itself: `submit.py
+--xrootdtimeout` (default **600** s per read request; coffea's 60 s made a single slow remote read,
+`Operation expired`, abort a 2 h job) keeps slow reads from failing. `submit.py` passes its own process pool
+to coffea and exits with code 1 on any exception, and a `--watchdog` (default 4 h) ends a stuck job with
+exit 3 and a thread dump: a worker that dies (e.g. `std::bad_alloc` after xrootd errors) used to deadlock
+coffea's pool shutdown, so the job hung until the 8 h limit without being retried.
+
+`jobs_status.py --reset` deletes nothing: it renames `outputs/<wf>/<year>`, `condor/<wf>/<year>` and
+`condor/logs/<wf>/<year>` to `<dir>_reset_<YYYYmmdd_HHMMSS>`, backs up the fileset JSON, drops only the
+workflow's non-signal entries (refetched by `runner.py`; the `era: signal` entries are kept), and
+resubmits with `runner.py ... --submit`. It prints the plan first and asks y/n (`--dry-run` stops
+there). It moves the **whole** year directory, including locally produced signal outputs, and then
+resubmits the signal to condor too.
 
 ---
 
@@ -239,6 +278,12 @@ $PY scripts/htautau/make_index.py         -w <workflow> -y 2024     # README.md 
   from CERNBox to browse them.
 - `run_postprocess.py --plot` makes data/MC stack plots; it is meant for when backgrounds and data
   are available.
+- Blinding: `--blind` is forced when the workflow has no `data:` group (the H→ττ workflows list their
+  PDs under `data_blinded:`). Data are never summed into "Total Background", and a blinded run writes
+  no Data column into the cutflow tables. The plotter's process list (colours) covers every process of
+  the workflow keys (a key may span several processes, e.g. `dy_nlo` = DYll + DYtautau).
+- Cutflow metadata: `initial` (before the jet veto, the same events as Σw) and `jet_veto` (after it)
+  precede the selection cuts. Do not merge per-job outputs produced before and after 2026-10-08.
 
 ---
 
@@ -264,6 +309,9 @@ Traps worth knowing early (more in [`README_HToTauTau.md`](README_HToTauTau.md#k
   `_sublead` objects for "leading object" quantities.
 - The muon scale / smearing correction uses unseeded random numbers, so two runs of a μ workflow
   differ slightly in the muon-dependent histograms (the selections and cutflows do not change).
+- Fail loud: an unknown trigger flag, a flag whose paths are **all** missing from the input file, and
+  a missing MET filter raise (a partially missing flag only warns once). An unknown category in
+  `mc_only_categories` raises at config build.
 - Rerunning a workflow overwrites its `outputs/<workflow>/2024/<dataset>/` files; use a different
   workflow name (e.g. a copy `htautau_mutau_test.yaml`) to keep an old result.
 

@@ -28,7 +28,9 @@ correction_files = {
         "2022postEE": "/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-22EFGSep23-Summer22EE-NanoAODv12/2024-01-31/puWeights.json.gz",
         "2023preBPix": "/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-23CSep23-Summer23-NanoAODv12/2024-01-31/puWeights.json.gz",
         "2023postBPix": "/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-23DSep23-Summer23BPix-NanoAODv12/2024-01-31/puWeights.json.gz",
-        "2024": f"{Path.cwd()}/analysis/data/pileup/2024_puWeights.json.gz",  # taken from /eos/cms/store/user/evourlio/pileupJson_forHiggsDNA
+        # official LUM weights for eras C-I (era B is not processed); pinned, not `latest`. The private preliminary
+        # file analysis/data/pileup/2024_puWeights.json.gz (key Collisions2024_preliminary) is no longer used
+        "2024": "/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/2026-04-15/puWeights_CDEFGHI.json.gz",
     },
     "muon": {
         "2016preVFP": "/cvmfs/cms-griddata.cern.ch/cat/metadata/MUO/Run2-2016preVFP-UL-NanoAODv9/2024-07-02/muon_Z.json.gz",

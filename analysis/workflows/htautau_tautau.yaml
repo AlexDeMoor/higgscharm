@@ -8,8 +8,14 @@
 #     trig_ditaujet : DoublePNetTauhPFJet26_L2NN_eta2p3_PFJet60, not in trig_ditau, both tau_h matched to the
 #                     di-tau+jet leg (bit 14), >= 1 jet (pT > 65, |eta| < 4.7, dR > 0.5 from both tau_h) matched
 #                     to the jet leg (bit 17) -> SF = SF_ditaujet(tau1) * SF_ditaujet(tau2). Approximate: the
-#                     region is exclusive by trigger decision (1 - eff_ditau is not corrected) and the jet leg
-#                     has no SF (flat uncertainty); it holds ~3-4 % of `trigger`.
+#                     region is exclusive w.r.t. the MATCHED trig_ditau region (not the DiTau_PNet decision:
+#                     an event that fired DiTau_PNet without matched legs can enter here), the per-leg SFs are
+#                     unconditional efficiencies (mu-tau_h tag and probe, the di-tau path is not vetoed), so the
+#                     product describes P(ditaujet), not P(ditaujet & !ditau), and the jet leg has no SF (flat
+#                     uncertainty); it holds ~3-4 % of `trigger`. Decision-level exclusion was checked (2026-10-07)
+#                     and rejected: it does not make the SF more valid and moves ~1 % of the region. Public Run-3
+#                     PNet frameworks (uhh-cms/hh2bbtautau) also use matched-trigger indicators; their OR formula
+#                     with tau_trigger eff_data / eff_mc is the possible upgrade.
 #   The DeepTau di-tau paths (DiTau_DeepTau, DiTauJet_DeepTau) have no 2024 SF: they are study axes only
 #   (pass_*), as is the flat OR of the four paths (pass_union).
 # tau_h objects: pT > 24.6 GeV and |eta| < 2.1.
@@ -23,6 +29,9 @@
 # (+41 % / +40 % w.r.t. a 35/31 GeV gated selection; the old flat OR gave 7.78 / 59.2 without SF).
 # ==================================================================================
 extends: includes/htautau_common
+datasets:                          # deep-merged with the common signal + mc lists
+  data_blinded:                    # not processed (see htautau_common.yaml); `data:` to unblind
+    - tau                          # Tau
 object_selection:
   taus:
     field: events.Tau
@@ -62,6 +71,8 @@ event_selection:
     two_taus: ak.num(objects['taus']) >= 2
     lepton_veto: (ak.num(objects['veto_muons']) == 0) & (ak.num(objects['veto_electrons']) == 0)
     study_den: ak.num(objects['taus_study']) >= 2
+  # not filled for data: gen-level / study categories, and the no-trigger selection
+  mc_only_categories: [gen_tautau, den_tautau_study, sel_tautau, sel_tautau_trig_gentautau]
   categories:
     gen_tautau:
       - gen_tautau
@@ -146,6 +157,8 @@ histogram_config:
       label: $\tau_h^{1}$ genPartFlav
       expression: objects['l1'].genPartFlav
       mc_only: true
+    tau1_response: {type: Regular, bins: 40, start: 0, stop: 2, label: '$p_T(\tau_h^{1}) / p_T^{gen}(\tau_h^{vis})$', expression: 'objects[''l1_tau_response'']', mc_only: true}
+    tau1_response_raw: {type: Regular, bins: 40, start: 0, stop: 2, label: '$p_T(\tau_h^{1})$ before TES / $p_T^{gen}(\tau_h^{vis})$', expression: 'objects[''l1_tau_response_raw'']', mc_only: true}
     l1_vse_tight: {type: Boolean, label: leading $\tau_h$ passes VSe Tight, expression: 'objects[''l1_vse_tight'']'}
     l1_vsmu_tight: {type: Boolean, label: leading $\tau_h$ passes VSmu Tight, expression: 'objects[''l1_vsmu_tight'']'}
     l1_vsjet_tight: {type: Boolean, label: leading $\tau_h$ passes VSjet Tight, expression: 'objects[''l1_vsjet_tight'']'}
@@ -192,7 +205,7 @@ histogram_config:
         year)'}
     pass_trig_ditau: {type: Boolean, label: 'trigger region trig_ditau (PNet di-tau, legs matched)', expression: 'selection_masks[''trig_ditau'']'}
     pass_trig_ditaujet: {type: Boolean, label: 'trigger region trig_ditaujet (PNet di-tau+jet, legs + jet matched)', expression: 'selection_masks[''trig_ditaujet'']'}
-    in_gen_acc: {type: Boolean, label: gen-level acceptance, expression: 'objects[''in_gen_acc_tautau'']'}
+    in_gen_acc: {type: Boolean, label: 'gen-level acceptance (reco kinematics: two $\tau_h^{vis}$ $p_T > 24.6$, $|\eta| < 2.1$)', expression: 'objects[''in_gen_acc_tautau'']'}
     in_reco_acc: {type: Boolean, label: passes the reco selection, expression: 'category_masks[''sel_tautau'']'}
     tau_pt: {label: '$p_T(\tau_h^{2})$ [GeV]'}
     tau_eta: {label: '$\eta(\tau_h^{2})$'}
@@ -212,6 +225,8 @@ histogram_config:
     tau_raw_upart_vsjet: {label: '$\tau_h^{2}$ UParT VSjet score'}
     tau_genflav: {label: '$\tau_h^{2}$ genPartFlav'}
     tau_pt_raw: {label: '$p_T(\tau_h^{2})$ before TES [GeV]'}
+    tau_response: {label: '$p_T(\tau_h^{2}) / p_T^{gen}(\tau_h^{vis})$'}
+    tau_response_raw: {label: '$p_T(\tau_h^{2})$ before TES / $p_T^{gen}(\tau_h^{vis})$'}
     higgs_dr_legs: {label: '$\Delta R(\tau_h^{1}, \tau_h^{2})$'}
     higgs_dphi_legs: {label: '$\Delta\phi(\tau_h^{1}, \tau_h^{2})$'}
     higgs_deta_legs: {label: '$\Delta\eta(\tau_h^{1}, \tau_h^{2})$'}
@@ -240,6 +255,9 @@ histogram_config:
     tau1_idx_vse: [tau1_idx_vse]
     tau1_idx_vsmu: [tau1_idx_vsmu]
     tau1_genflav: [tau1_genflav]
+    tau1_response_by_dm: [tau1_response, tau1_dm]
+    tau1_response_raw_by_dm: [tau1_response_raw, tau1_dm]
+    etaphi_tau1: [tau1_eta, tau1_phi]
     l1_vse_tight: [l1_vse_tight]
     l1_vsmu_tight: [l1_vsmu_tight]
     l1_vsjet_tight: [l1_vsjet_tight]

@@ -42,8 +42,9 @@ if __name__ == "__main__":
         "--nfiles",
         dest="nfiles",
         type=int,
-        default=15,
-        help="number of root files to include in each dataset partition (default 15)",
+        default=5,
+        help="number of root files per condor job (default 5: ~45 min for the heaviest MC; a "
+        "failed job is rerun as a whole, so short jobs lose less)",
     )
     parser.add_argument(
         "--submit",
@@ -66,8 +67,31 @@ if __name__ == "__main__":
         "-m",
         "--memory",
         type=str,
-        default="2000",
-        help="Requested memory (in MB) for the condor job",
+        default="4000",
+        help="Requested memory (in MB) for the condor job (default 4000)",
+    )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=50000,
+        help="events per chunk in the condor job (default 50000)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="worker processes per condor job, also its request_cpus (default 2)",
+    )
+    parser.add_argument(
+        "--skipbadfiles",
+        action="store_true",
+        help="skip unreadable files/chunks instead of failing the job (see submit.py; off by default)",
+    )
+    parser.add_argument(
+        "--max_retries",
+        type=int,
+        default=2,
+        help="condor reruns of a job that exits with a non-zero code (default 2)",
     )
     args = parser.parse_args()
 
@@ -92,8 +116,16 @@ if __name__ == "__main__":
             "--output_format",
             args.output_format,
             "--memory",
-            args.memory
+            args.memory,
+            "--chunksize",
+            str(args.chunksize),
+            "--workers",
+            str(args.workers),
+            "--max_retries",
+            str(args.max_retries),
         ]
+        if args.skipbadfiles:
+            cmd_args.append("--skipbadfiles")
         if args.submit:
             cmd_args.append("--submit")
         if args.eos:

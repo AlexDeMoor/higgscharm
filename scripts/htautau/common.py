@@ -85,6 +85,12 @@ def group_of(config, variable: str) -> str:
     return "other"
 
 
+def is_2d_layout(layout, variables) -> bool:
+    """two-axis layout drawn as a 2D map / per-category curves (the trig_* and *_by_tauwp
+    multi-axis layouts have their own code paths)"""
+    return len(variables) == 2 and not layout.startswith("trig_") and not layout.endswith("_by_tauwp")
+
+
 def ordered_groups(config):
     groups = config.plotting.get("groups") or {}
     labels = config.plotting.get("group_labels") or {}

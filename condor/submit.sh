@@ -27,6 +27,16 @@ if [ "${ARGS[eos]}" = "True" ]; then
     OPTS="$OPTS --eos"
 fi
 
+# processing options (absent from the arguments.json of job directories made before they
+# existed: defaults = submit.py defaults)
+CHUNKSIZE=$(python3 -c "import json; print(json.load(open('$WORKDIR/arguments.json')).get('chunksize', 50000))")
+WORKERS=$(python3 -c "import json; print(json.load(open('$WORKDIR/arguments.json')).get('workers', 2))")
+SKIPBADFILES=$(python3 -c "import json; print(json.load(open('$WORKDIR/arguments.json')).get('skipbadfiles', False))")
+OPTS="$OPTS --chunksize $CHUNKSIZE --workers $WORKERS"
+if [ "$SKIPBADFILES" = "True" ]; then
+    OPTS="$OPTS --skipbadfiles"
+fi
+
 # get partition fileset
 python3 -c "import json; json.dump(json.load(open('$WORKDIR/partitions.json'))['$JOBID'], open('$WORKDIR/partition_fileset.json', 'w'), indent=4)"
 OPTS="$OPTS --partition_json $WORKDIR/partition_fileset.json"

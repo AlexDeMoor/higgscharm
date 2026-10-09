@@ -20,6 +20,10 @@
 # bH 42.2 (+18.5 % w.r.t. e > 30 / tau > 30 gates; single-e > 32 only would give 3.51 / 26.2).
 # ==================================================================================
 extends: includes/htautau_common
+datasets:                          # deep-merged with the common signal + mc lists
+  data_blinded:                    # not processed (see htautau_common.yaml); `data:` to unblind
+    - electron                     # EGamma0, EGamma1
+    - tau                          # Tau
 object_selection:
   electrons:                       # the full list (deep_merge replaces lists): |eta| < 2.5 branch from 32 GeV
     field: events.Electron
@@ -73,6 +77,9 @@ event_selection:
     muon_veto: ak.num(objects['veto_muons']) == 0
     atleast_one_tau: ak.num(objects['taus']) >= 1
     study_den: (ak.num(objects['electrons_study']) >= 1) & (ak.num(objects['taus_study']) >= 1)
+  # not filled for data: gen-level / study categories, and the no-trigger selection (filled
+  # once per primary dataset on data). sel_etau_trig_ditauextra is a trigger region: kept
+  mc_only_categories: [gen_etau, den_etau_study, sel_etau, sel_etau_trig_genetau]
   categories:
     gen_etau:
       - gen_etau
@@ -232,7 +239,7 @@ histogram_config:
     pass_trig_singleele: {type: Boolean, label: passes the gated trigger region trig_singleele, expression: 'selection_masks[''trig_singleele'']'}
     pass_trig_crossele: {type: Boolean, label: passes the gated trigger region trig_crossele, expression: 'selection_masks[''trig_crossele'']'}
     pass_trig_ditau_extra: {type: Boolean, label: 'di-tau extra region (monitoring, not in trigger)', expression: 'selection_masks[''trig_ditau_extra'']'}
-    in_gen_acc: {type: Boolean, label: gen-level acceptance, expression: 'objects[''in_gen_acc_etau'']'}
+    in_gen_acc: {type: Boolean, label: 'gen-level acceptance (reco kinematics: $e$ $p_T > 25$, $|\eta| < 2.1$ or $p_T > 32$, $|\eta| < 2.5$; $\tau_h^{vis}$ $p_T > 24.6$, $|\eta| < 2.3$)', expression: 'objects[''in_gen_acc_etau'']'}
     in_reco_acc: {type: Boolean, label: passes the reco selection, expression: 'category_masks[''sel_etau'']'}
   layout:
     ele_pt: [ele_pt]
@@ -247,6 +254,7 @@ histogram_config:
     ele_mvaIso_WP90: [ele_mvaIso_WP90]
     ele_mvaNoIso_WP90: [ele_mvaNoIso_WP90]
     ele_sceta: [ele_sceta]
+    etaphi_ele: [ele_eta, ele_phi]
     trig_reco: [turnon_lepton_pt, pass_EleTau_PNet, pass_SingleEle, pass_DiTau_PNet, pass_DiTau_DeepTau, pass_EleTau_DeepTau, pass_union, pass_trigger, pass_trig_singleele, pass_trig_crossele, pass_trig_ditau_extra,
       gen_channel]
     trig_reco_eta: [turnon_lepton_eta, pass_EleTau_PNet, pass_SingleEle, pass_DiTau_PNet, pass_DiTau_DeepTau, pass_EleTau_DeepTau, pass_union, pass_trigger, pass_trig_singleele, pass_trig_crossele, pass_trig_ditau_extra]

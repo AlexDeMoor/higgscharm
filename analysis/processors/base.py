@@ -57,6 +57,8 @@ class BaseProcessor(processor.ProcessorABC):
         # removes events before process_shift, so it must be recorded here). Used for
         # the .coffea metadata; the parquet path additionally writes sumw_records.
         self._sumw = float(ak.sum(events.genWeight)) if self.is_mc else len(events)
+        # raw event count of the chunk before the jet veto ("initial" cutflow row)
+        self._nevents = len(events)
         if self.output_format == "parquet" and self.is_mc:
             dump_chunk_sumw(events, self.workflow, self.year, self.output_location)
         vetoed_events, shifts = object_corrector_manager(
@@ -116,8 +118,21 @@ class BaseProcessor(processor.ProcessorABC):
             selection_manager.add(selection, eval(mask))
             selection_masks[selection] = selection_manager.all(selection)
 
+        # categories that are not filled for data (event_selection.mc_only_categories:
+        # gen-level, study and no-trigger categories, meaningless or double counted
+        # across primary datasets on data): no histograms, parquets or cutflow
+        skip_categories = (
+            set() if self.is_mc else set(event_selection.get("mc_only_categories", []))
+        )
         if shift is None:
-            add_cutflow(events, output, selection_manager, self.workflow_config)
+            add_cutflow(
+                events,
+                output,
+                selection_manager,
+                self.workflow_config,
+                initial=(self._sumw, self._nevents),
+                skip_categories=skip_categories,
+            )
 
         # per-category masks. Computed up-front so that histogram expressions can refer
         # to them through `category_masks[<category>]` (e.g. an "in acceptance" Boolean
@@ -141,6 +156,8 @@ class BaseProcessor(processor.ProcessorABC):
         # Histogram filling / array dumping
         # --------------------------------------------------------------
         for category, category_mask in category_masks.items():
+            if category in skip_categories:
+                continue
             nevents_after = ak.sum(category_mask)
             if nevents_after > 0:
                 # get pruned events

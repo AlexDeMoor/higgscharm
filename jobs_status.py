@@ -2,8 +2,11 @@
 This script inspects Condor job outputs, identifies missing jobs, analyzes recent xrootd-related failures, and optionally regenerates input filesets with problematic sites blacklisted and resubmits only the missing jobs
 """
 
+import os
+import sys
 import yaml
 import json
+import shutil
 import argparse
 import subprocess
 from pathlib import Path
@@ -17,6 +20,8 @@ from analysis.filesets.utils import (
     modify_site_list,
     extract_xrootd_errors,
     get_nano_version,
+    get_dataset_config,
+    get_datasets_to_run_over,
 )
 
 
@@ -72,7 +77,26 @@ def parse_args():
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Delete all job outputs, logs, and filesets for this workflow/year and rerun",
+        help="Start this workflow/year from scratch: MOVE its job outputs, condor job files "
+        "and logs to timestamped '<dir>_reset_<time>' backups next to them, back up the fileset "
+        "JSON and the site list and drop the workflow's non-signal fileset entries (the "
+        "private 'era: signal' entries are kept), then resubmit every job with "
+        "'runner.py --submit' (asks for confirmation; with --dry-run only prints the plan)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="with --reset: print what would be moved and the runner.py command, change nothing",
+    )
+    # forwarded to runner.py by --reset (same defaults as runner.py)
+    parser.add_argument("--nfiles", type=int, default=5, help="--reset: files per job")
+    parser.add_argument("-m", "--memory", type=str, default="4000", help="--reset: request_memory [MB]")
+    parser.add_argument("--chunksize", type=int, default=50000, help="--reset: events per chunk")
+    parser.add_argument("--workers", type=int, default=2, help="--reset: workers (= request_cpus) per job")
+    parser.add_argument("--max_retries", type=int, default=2, help="--reset: condor max_retries")
+    parser.add_argument(
+        "--skipbadfiles", action="store_true", help="--reset: skip unreadable files (see submit.py)"
     )
     parser.add_argument(
         "--single_fetch",
@@ -449,50 +473,144 @@ def resubmit_jobs(job_dir, jobnum_missing, datasets_with_missing_jobs, workflow,
     print("Job resubmission completed.\n")
 
 
+def reset_workflow(
+    workflow,
+    year,
+    base_dir,
+    output_dirs,
+    datasets,
+    dataset_config,
+    runner_cmd,
+    timestamp,
+    run=subprocess.run,
+    dry_run=False,
+):
+    """Reset one workflow/year (jobs_status.py --reset). Nothing is deleted:
+
+      1. output directories (`output_dirs`, i.e. outputs/<workflow>/<year>: per-job .coffea,
+         parquet shards, sumw_records and the postprocessed files, which would be stale),
+         condor/<workflow>/<year> and condor/logs/<workflow>/<year> are RENAMED to
+         '<dir>_reset_<timestamp>' next to them (outside every glob of run_postprocess.py
+         and jobs_status.py);
+      2. analysis/filesets/<year>_sites.yaml (the site black/white list that the xrootd
+         remediation edits; shared by all workflows of the year) is renamed to
+         '.bak_reset_<timestamp>' so that fetch.py builds a fresh one -- only when some
+         datasets are refetched (a signal-only workflow never runs fetch.py);
+      3. the fileset JSON is copied to '.bak_reset_<timestamp>' and the workflow's datasets
+         are removed from it EXCEPT the 'era: signal' ones (private samples: plain fetch.py
+         skips them, they are only rebuilt by `fetch.py --onlysignal`); runner.py's
+         fileset_checker then refetches the removed ones (make_filesets updates the JSON in
+         place, other workflows' entries are untouched);
+      4. `runner_cmd` (runner.py ... --submit) is run.
+
+    Returns the list of (source, destination) moves."""
+    base_dir = Path(base_dir)
+    nano_version = get_nano_version(year)
+    fileset_file = base_dir / "analysis" / "filesets" / f"fileset_{year}_nanov{nano_version}_lxplus.json"
+    sites_file = base_dir / "analysis" / "filesets" / f"{year}_sites.yaml"
+
+    signal = [d for d in datasets if (dataset_config.get(d) or {}).get("era") == "signal"]
+    to_refetch = [d for d in datasets if d not in signal]
+
+    moves = []
+    for path in [Path(p) for p in output_dirs] + [
+        base_dir / "condor" / workflow / year,
+        base_dir / "condor" / "logs" / workflow / year,
+    ]:
+        if path.exists():
+            moves.append((path, path.with_name(f"{path.name}_reset_{timestamp}")))
+    if sites_file.exists() and to_refetch:
+        # only when fetch.py will run (it rebuilds the list; the xrootd remediation needs it).
+        # NB: the site list is shared by all the workflows of this year
+        moves.append((sites_file, sites_file.with_name(f"{sites_file.name}.bak_reset_{timestamp}")))
+    filesets = json.loads(fileset_file.read_text()) if fileset_file.exists() else {}
+    missing_signal = [d for d in signal if d not in filesets]
+    if missing_signal:
+        # runner.py's fetch.py call cannot build them (make_filesets skips era: signal)
+        raise RuntimeError(
+            f"signal datasets {missing_signal} are not in {fileset_file}: run "
+            f"'python3 fetch.py -y {year} --onlysignal' first"
+        )
+
+    print("------------------------------------------------------------")
+    print(f"RESET {workflow} / {year}" + ("  (dry run: nothing is changed)" if dry_run else ""))
+    print("------------------------------------------------------------")
+    for src, dst in moves:
+        print(f"move   {src}\n    -> {dst}")
+    if fileset_file.exists():
+        print(f"backup {fileset_file} -> {fileset_file.name}.bak_reset_{timestamp}")
+        print(f"fileset entries kept (era: signal): {signal}")
+        print(f"fileset entries dropped (refetched by runner.py): {to_refetch}")
+    print("resubmit: " + " ".join(runner_cmd))
+    if dry_run:
+        return moves
+
+    for src, dst in moves:
+        if dst.exists():
+            raise FileExistsError(f"reset backup {dst} already exists")
+        shutil.move(str(src), str(dst))
+
+    if fileset_file.exists():
+        shutil.copy2(fileset_file, fileset_file.with_name(f"{fileset_file.name}.bak_reset_{timestamp}"))
+        for dataset in to_refetch:
+            filesets.pop(dataset, None)
+        fileset_file.write_text(json.dumps(filesets, indent=4, sort_keys=True))
+
+    run(runner_cmd, check=True)
+    return moves
+
+
 def main():
     args = parse_args()
 
-    # Optional full reset
+    # Optional full reset (backups, no deletion; see reset_workflow). Ends the script: the
+    # job status of a freshly submitted workflow is meaningless (every job "missing")
     if args.reset:
-        print("------------------------------------------------------------")
-        print("RESET REQUESTED — REMOVING ALL JOB ARTIFACTS AND RESTARTING")
-        print("------------------------------------------------------------")
-
-        nano_version = get_nano_version(args.year)
-        subprocess.run(
-            ["rm", "-rf", f"condor/{args.workflow}/{args.year}"], check=False
-        )
-        subprocess.run(
-            ["rm", "-rf", f"condor/logs/{args.workflow}/{args.year}"], check=False
-        )
-        subprocess.run(
-            ["rm", "-rf", f"analysis/filesets/{args.year}_sites.yaml"], check=False
-        )
-        subprocess.run(
-            [
-                "rm",
-                "-rf",
-                f"analysis/filesets/fileset_{args.year}_nanov{nano_version}_lxplus.json",
-            ],
-            check=False,
-        )
-
-        reset_cmd = [
-            "python3",
-            "runner.py",
-            "-w",
-            args.workflow,
-            "-y",
-            args.year,
-            "--output_format",
-            args.output_format,
+        base_dir = Path.cwd()
+        output_dirs = [Path(make_output_directory(args))]
+        if args.output_format == "parquet" and not args.eos:
+            # submit.py writes the parquet shards to AFS when --eos is not given
+            user = os.environ["USER"]
+            output_dirs.append(
+                Path(f"/afs/cern.ch/user/{user[0]}/{user}/public/higgscharm/outputs")
+                / args.workflow
+                / args.year
+            )
+        runner_cmd = [
+            sys.executable, "runner.py",
+            "-w", args.workflow,
+            "-y", args.year,
+            "--output_format", args.output_format,
+            "--nfiles", str(args.nfiles),
+            "--memory", args.memory,
+            "--chunksize", str(args.chunksize),
+            "--workers", str(args.workers),
+            "--max_retries", str(args.max_retries),
+            "--submit",
         ]
         if args.eos:
-            reset_cmd.append("--eos")
-
-        print("Re-running full workflow via runner.py...")
-        subprocess.run(reset_cmd, check=True)
-        print("Reset complete.\n")
+            runner_cmd.append("--eos")
+        if args.skipbadfiles:
+            runner_cmd.append("--skipbadfiles")
+        reset_args = dict(
+            workflow=args.workflow,
+            year=args.year,
+            base_dir=base_dir,
+            output_dirs=output_dirs,
+            datasets=get_datasets_to_run_over(args.workflow, args.year),
+            dataset_config=get_dataset_config(args.year),
+            runner_cmd=runner_cmd,
+            timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+        reset_workflow(**reset_args, dry_run=True)
+        if args.dry_run:
+            return
+        if input("Proceed with the reset and resubmit? (y/n): ").lower() not in ["y", "yes"]:
+            print("Reset aborted, nothing changed.")
+            return
+        reset_workflow(**reset_args)
+        print("Reset complete: jobs resubmitted.\n")
+        return
 
     # Directory setup
     output_dir = Path(make_output_directory(args))

@@ -327,7 +327,15 @@ if __name__ == "__main__":
                 ]
                 if raw_frames:
                     raw_df = pd.concat(raw_frames, axis=1)
-                    raw_df = raw_df.loc[[c for c in event_selection["categories"][category] if c in raw_df.index]]
+                    if args.blind:
+                        # blinded: no data column anywhere in the written tables
+                        raw_df = raw_df.drop(columns=[c for c in ["Data"] if c in raw_df.columns])
+                    # the normalisation rows (`initial` = Σw before the jet veto, `jet_veto`)
+                    # first, then the cuts of the category
+                    raw_df = raw_df.loc[
+                        [r for r in ["initial", "jet_veto"] if r in raw_df.index]
+                        + [c for c in event_selection["categories"][category] if c in raw_df.index]
+                    ]
                     raw_df.to_csv(f"{category_dir}/cutflow_raw_{category}.csv")
 
                 key_process_map = get_workflow_key_process_map(
@@ -338,16 +346,22 @@ if __name__ == "__main__":
                     signals = [key_process_map[key] for key in signal_keys]
                     columns_to_drop += signals
 
-                if not args.blind:
-                    columns_to_drop += ["Data"]
+                # data is never part of the background sum (with --blind it used to be added to it)
+                columns_to_drop += ["Data"]
+                if args.blind:
+                    # blinded: drop the data column from the logged / written cutflow
+                    cutflow_df = cutflow_df.drop(columns=[c for c in ["Data"] if c in cutflow_df.columns])
 
                 total_background = cutflow_df.drop(columns=[c for c in columns_to_drop if c in cutflow_df.columns]).sum(axis=1)
                 cutflow_df["Total Background"] = total_background
 
-                cutflow_index = event_selection["categories"][category]
+                cutflow_index = [
+                    r for r in ["initial", "jet_veto"] if r in cutflow_df.index
+                ] + list(event_selection["categories"][category])
                 cutflow_df = cutflow_df.loc[cutflow_index]
 
-                if not args.blind:
+                # Data may be absent although unblinded: mc_only_categories are not filled on data
+                if not args.blind and "Data" in cutflow_df.columns:
                     to_process = ["Data", "Total Background"]
                 else:
                     to_process = ["Total Background"]

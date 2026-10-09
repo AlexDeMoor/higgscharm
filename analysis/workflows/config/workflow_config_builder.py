@@ -1,4 +1,5 @@
 import copy
+import fnmatch
 import yaml
 from pathlib import Path
 from analysis.histograms import HistogramConfig
@@ -109,7 +110,40 @@ class WorkflowConfigBuilder:
         event_selection = {}
         for cut_name, cut in self.config["event_selection"].items():
             event_selection[cut_name] = cut
+        if "mc_only_categories" in event_selection:
+            event_selection["mc_only_categories"] = self.resolve_mc_only_categories(
+                event_selection["mc_only_categories"], event_selection["categories"]
+            )
         return event_selection
+
+    @staticmethod
+    def resolve_mc_only_categories(entries, categories):
+        """`event_selection.mc_only_categories`: category names or fnmatch patterns of the
+        categories that are not filled for data (BaseProcessor skips them: no histograms,
+        parquets or cutflow). Returns the list of matched category names (yaml order); an
+        entry that matches no category is an error (typo / renamed category)."""
+        if entries is None:
+            return []
+        if isinstance(entries, str) or not isinstance(entries, list):
+            raise ValueError(
+                f"event_selection.mc_only_categories must be a list of category names or "
+                f"fnmatch patterns, got {entries!r}"
+            )
+        unmatched = [
+            entry
+            for entry in entries
+            if not any(fnmatch.fnmatchcase(category, str(entry)) for category in categories)
+        ]
+        if unmatched:
+            raise ValueError(
+                f"event_selection.mc_only_categories {unmatched} match no category "
+                f"(categories: {list(categories)})"
+            )
+        return [
+            category
+            for category in categories
+            if any(fnmatch.fnmatchcase(category, str(entry)) for entry in entries)
+        ]
 
     def parse_histogram_config(self):
         hist_config = HistogramConfig(**copy.deepcopy(self.config["histogram_config"]))

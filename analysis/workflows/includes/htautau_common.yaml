@@ -14,6 +14,20 @@ datasets:
   signal:
     - hc_tautau
     - hb_tautau
+  mc:                        # one fileset key per postprocess process (2024_nanov15.yaml)
+    - dy_ll                  # DYll: DYto2E/2Mu, MLL-10to50 + MLL-50
+    - dy_tautau              # DYtautau: DYto2Tau, MLL-10to50 + MLL-50
+    - tt
+    - singletop
+    - diboson
+    - wjets_nlo              # Wjets: WtoENu/MuNu/TauNu inclusive (NNLO xsec per flavour)
+    - ggh_tautau
+    - qqh_tautau
+    - vh_tautau
+    - tth_nonbb
+  # The channel yamls list their primary datasets under `data_blinded:`, which no runner and no
+  # postprocess step reads (they only read `data` / `mc` / `signal`): data are defined but stay
+  # unprocessed and the postprocess stays blinded. Rename to `data:` to unblind.
 object_selection:
   muons:                     # signal muons: defined by the mu tau_h channel; the other channels
     field: events.Muon       # only count them (placeholder = the loose veto definition below)
@@ -40,13 +54,14 @@ object_selection:
       - ~((np.abs(events.Electron.superclusterEta) > 1.44) & (np.abs(events.Electron.superclusterEta) < 1.57))
       - np.abs(events.Electron.dxy) < 0.045
       - np.abs(events.Electron.dz) < 0.2
-  veto_electrons:            # extra-lepton veto: non-isolated MVA WP90 + loose isolation, NO impact-parameter cuts
+  veto_electrons:            # extra-lepton veto: (non-isolated MVA WP90 + loose isolation) OR iso MVA WP90, NO impact-parameter cuts
     field: events.Electron
     cuts:
       - events.Electron.pt > 10
       - np.abs(events.Electron.eta) < 2.5
-      - working_points.electron_id(events, 'wp90noiso')
-      - events.Electron.pfRelIso03_all < 0.3
+      # the OR with wp90iso makes the veto a superset of the e tau_h signal electron (wp90iso, no isolation cut):
+      # with wp90noiso alone ~4 % of the signal electrons were not veto electrons, so `n_veto_e == 1` lost them
+      - (working_points.electron_id(events, 'wp90noiso') & (events.Electron.pfRelIso03_all < 0.3)) | working_points.electron_id(events, 'wp90iso')
   taus:                      # generic baseline tau_h (a channel may tighten pT / eta)
     field: events.Tau
     cuts:
@@ -125,6 +140,12 @@ object_selection:
     field: select_gen_htautau      # -> gen_channel, gen_* objects
   acc:
     field: select_acceptance_flags # -> in_gen_acc_<channel>
+  best_cvl_jet:
+    field: select_best_cvl_jet     # -> best_cvl_jet (highest CvL among ALL selected jets, not only c-tagged)
+  cjet_truth:
+    field: select_cjet_truth       # -> cjet_dr_genc, truecjet_pt_rank, truecjet_cvl_rank (MC; NaN on data)
+  tau_response:
+    field: select_tau_response     # -> l{1,2}_tau_response(_raw): reco / gen visible tau_h pT (genuine tau_h, MC)
 event_selection:
   hlt_paths: {}                    # overridden per channel
   selections:
@@ -183,6 +204,9 @@ plotting:
     lepton: []                     # overridden per channel (mu_*, ele_*, tau1_*)
     tau: ["tau_*"]
     met: ["met_*", "pfmet_*", "genmet_*", "mt_*_met", "dphi_*_met"]
+    # ctag / detector before jets: first match wins (jet?_* / cjet_* would take them)
+    ctag: ["bestcvl_*", "hf_tag_category", "cjet_partonflavour", "cjet_dr_genc", "truecjet_*", "ctag2d_*"]
+    detector: ["rho", "pu_*", "etaphi_*"]
     jets: ["jet?_*", "cjet_*", "n_jets", "n_cjets", "n_bjets"]
     gen: ["gen_*", "genjet*", "n_gen_*"]
     multiplicities: ["n_*"]
@@ -407,6 +431,43 @@ histogram_config:
       edges: [0, 20, 40, 60, 80, 100, 120, 150, 200, 300]
       label: Puppi $p_T^{miss}$ [GeV]
       expression: objects['met'].pt
+    # ---- c tagging: best-CvL jet among ALL selected jets, heavy-flavour tag category, c-jet truth ----
+    bestcvl_pt: {type: Regular, bins: 50, start: 0, stop: 300, label: 'best-CvL jet $p_T$ [GeV]', expression: 'objects[''best_cvl_jet''].pt'}
+    bestcvl_eta: {type: Regular, bins: 50, start: -2.5, stop: 2.5, label: best-CvL jet $\eta$, expression: 'objects[''best_cvl_jet''].eta'}
+    bestcvl_hadronflavour:
+      type: IntCategory
+      categories: [0, 4, 5]
+      label: best-CvL jet hadron flavour
+      expression: objects['best_cvl_jet'].hadronFlavour
+      mc_only: true
+    bestcvl_cvsl_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: best-CvL jet CvL (UParT), expression: 'objects[''best_cvl_jet''].btagUParTAK4CvL'}
+    bestcvl_cvsb_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: best-CvL jet CvB (UParT), expression: 'objects[''best_cvl_jet''].btagUParTAK4CvB'}
+    bestcvl_b_upart: {type: Regular, bins: 50, start: 0, stop: 1, label: best-CvL jet B (UParT), expression: 'objects[''best_cvl_jet''].btagUParTAK4B'}
+    # coarse copies for the (CvL, CvB) maps
+    bestcvl_cvsl_upart_2d: {type: Regular, bins: 20, start: 0, stop: 1, label: best-CvL jet CvL (UParT), expression: 'objects[''best_cvl_jet''].btagUParTAK4CvL'}
+    bestcvl_cvsb_upart_2d: {type: Regular, bins: 20, start: 0, stop: 1, label: best-CvL jet CvB (UParT), expression: 'objects[''best_cvl_jet''].btagUParTAK4CvB'}
+    jet1_cvsl_upart_2d: {type: Regular, bins: 20, start: 0, stop: 1, label: jet 1 CvL (UParT), expression: 'objects[''jet1''].btagUParTAK4CvL'}
+    jet1_cvsb_upart_2d: {type: Regular, bins: 20, start: 0, stop: 1, label: jet 1 CvB (UParT), expression: 'objects[''jet1''].btagUParTAK4CvB'}
+    hf_tag_category:                 # exclusive, b has priority: 0 no c/b tag, 1 >= 1 c-tag and no b-tag, 2 >= 1 b-tag
+      type: IntCategory
+      categories: [0, 1, 2]
+      label: 'heavy-flavour tag category (0: none, 1: $\geq$1 c-tag, 0 b-tag, 2: $\geq$1 b-tag)'
+      expression: ak.where(ak.num(objects['bjets']) > 0, 2, ak.where(ak.num(objects['cjets']) > 0, 1, 0))
+    cjet_partonflavour:
+      type: IntCategory
+      categories: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 21]
+      label: c-jet candidate parton flavour
+      expression: ak.firsts(objects['candidate_cjet'].partonFlavour)
+      mc_only: true
+    cjet_dr_genc: {type: Regular, bins: 50, start: 0, stop: 5, label: '$\Delta R$(c-jet candidate, gen c quark)', expression: 'ak.fill_none(objects[''cjet_dr_genc''], np.nan)', mc_only: true}
+    truecjet_pt_rank: {type: Integer, start: 0, stop: 10, label: '$p_T$ rank of the leading true c-jet (0 = highest; overflow = no true c-jet)', expression: 'objects[''truecjet_pt_rank'']', mc_only: true}
+    truecjet_cvl_rank: {type: Integer, start: 0, stop: 10, label: 'CvL rank of the leading true c-jet (0 = highest; overflow = no true c-jet)', expression: 'objects[''truecjet_cvl_rank'']', mc_only: true}
+    # ---- tau_h response (genuine tau_h of the tau_h leg; DM split through the tau_dm axis) ----
+    tau_response: {type: Regular, bins: 40, start: 0, stop: 2, label: '$p_T(\tau_h) / p_T^{gen}(\tau_h^{vis})$', expression: 'objects[''l2_tau_response'']', mc_only: true}
+    tau_response_raw: {type: Regular, bins: 40, start: 0, stop: 2, label: '$p_T(\tau_h)$ before TES / $p_T^{gen}(\tau_h^{vis})$', expression: 'objects[''l2_tau_response_raw'']', mc_only: true}
+    # ---- detector / pileup ----
+    rho: {type: Regular, bins: 50, start: 0, stop: 60, label: '$\rho$ (fixedGridRhoFastjetAll) [GeV]', expression: events.Rho.fixedGridRhoFastjetAll}
+    pu_ntrueint: {type: Regular, bins: 80, start: 0, stop: 80, label: 'pileup $\langle\mu\rangle$ (Pileup_nTrueInt)', expression: events.Pileup.nTrueInt, mc_only: true}
   layout:
     tau_pt: [tau_pt]
     tau_eta: [tau_eta]
@@ -528,3 +589,23 @@ histogram_config:
     genjet3_pt: [genjet3_pt]
     genjet3_eta: [genjet3_eta]
     genjet3_hadronflavour: [genjet3_hadronflavour]
+    bestcvl_pt: [bestcvl_pt]
+    bestcvl_eta: [bestcvl_eta]
+    bestcvl_hadronflavour: [bestcvl_hadronflavour]
+    bestcvl_cvsl_upart: [bestcvl_cvsl_upart]
+    bestcvl_cvsb_upart: [bestcvl_cvsb_upart]
+    bestcvl_b_upart: [bestcvl_b_upart]
+    hf_tag_category: [hf_tag_category]
+    cjet_partonflavour: [cjet_partonflavour]
+    cjet_dr_genc: [cjet_dr_genc]
+    truecjet_pt_rank: [truecjet_pt_rank]
+    truecjet_cvl_rank: [truecjet_cvl_rank]
+    rho: [rho]
+    pu_ntrueint: [pu_ntrueint]
+    # 2D layouts (scripts/htautau/plot_shapes.py draws them as maps / per-category curves)
+    ctag2d_bestcvl: [bestcvl_cvsl_upart_2d, bestcvl_cvsb_upart_2d]
+    ctag2d_jet1: [jet1_cvsl_upart_2d, jet1_cvsb_upart_2d]
+    tau_response_by_dm: [tau_response, tau_dm]
+    tau_response_raw_by_dm: [tau_response_raw, tau_dm]
+    etaphi_tau: [tau_eta, tau_phi]
+    etaphi_jet1: [jet1_eta, jet1_phi]

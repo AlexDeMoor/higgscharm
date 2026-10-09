@@ -182,28 +182,77 @@ def get_datasets_map(year: str):
     return datasets_map
 
 
+# `datasets:` groups of a workflow yaml that are processed by default, and groups that are only
+# declared (validated, never run): `data_blinded` keeps the primary datasets of a blinded analysis
+# out of every default run and keeps run_postprocess.py / the plotter blinded (they test `data`).
+DATASET_GROUPS_TO_RUN = ("data", "mc", "signal")
+DATASET_GROUPS_DECLARED_ONLY = ("data_blinded",)
+ALL_YEARS = (
+    "2016preVFP",
+    "2016postVFP",
+    "2017",
+    "2018",
+    "2022preEE",
+    "2022postEE",
+    "2023preBPix",
+    "2023postBPix",
+    "2024",
+)
+
+
 def get_datasets_to_run_over(workflow: str, year: str):
+    """fileset samples of the `data` / `mc` / `signal` keys of a workflow for one year
+
+    Fails loudly on a key that no fileset yaml of any year defines (a typo would otherwise
+    silently drop a sample) and on an unknown `datasets:` group. Keys that exist for other
+    years only are skipped with one summary warning: several Run 2 / Run 3 workflows
+    (zzto4l, hplusc, zplusl*, zplusll*, ctag_eff) list the union of the per-year keys.
+    """
     config_builder = WorkflowConfigBuilder(workflow=workflow)
     workflow_config = config_builder.build_workflow_config()
+    datasets = workflow_config.datasets
+
+    unknown_groups = [
+        g for g in datasets
+        if g not in DATASET_GROUPS_TO_RUN + DATASET_GROUPS_DECLARED_ONLY
+    ]
+    if unknown_groups:
+        raise ValueError(
+            f"workflow '{workflow}': unknown `datasets:` group(s) {unknown_groups}; "
+            f"expected {list(DATASET_GROUPS_TO_RUN + DATASET_GROUPS_DECLARED_ONLY)}"
+        )
 
     samples_keys_to_run_over = []
-    if "data" in workflow_config.datasets:
-        data_samples = workflow_config.datasets["data"]
-        samples_keys_to_run_over += data_samples
-    if "mc" in workflow_config.datasets:
-        mc_samples = workflow_config.datasets["mc"]
-        samples_keys_to_run_over += mc_samples
-    if "signal" in workflow_config.datasets:
-        signal_samples = workflow_config.datasets["signal"]
-        samples_keys_to_run_over += signal_samples
+    for group in DATASET_GROUPS_TO_RUN:
+        samples_keys_to_run_over += list(datasets.get(group) or [])
+    declared_keys = []
+    for group in DATASET_GROUPS_DECLARED_ONLY:
+        declared_keys += list(datasets.get(group) or [])
+
+    datasets_map = get_datasets_map(year)
+    all_keys = set(datasets_map)
+    for other_year in ALL_YEARS:
+        if other_year != year:
+            all_keys |= set(get_datasets_map(other_year))
+    unknown = [k for k in samples_keys_to_run_over + declared_keys if k not in all_keys]
+    if unknown:
+        raise ValueError(
+            f"workflow '{workflow}': dataset key(s) {unknown} match no `key:` of any fileset "
+            f"yaml in analysis/filesets/ (typo?)"
+        )
 
     datasets_to_run_over = []
-    datasets_map = get_datasets_map(year)
+    missing_this_year = []
     for key in samples_keys_to_run_over:
         if key not in datasets_map:
-            print(f"\n{key} not availabe for {year}!")
+            missing_this_year.append(key)
             continue
         datasets_to_run_over += datasets_map[key]
+    if missing_this_year:
+        print(
+            f"\nWARNING: workflow '{workflow}': key(s) {missing_this_year} have no {year} "
+            f"sample (defined for other years only): skipped"
+        )
     return datasets_to_run_over
 
 
@@ -233,6 +282,21 @@ def get_workflow_key_process_map(workflow_config, year: str):
                         key_process_map[sk] = sample_process
 
     return key_process_map
+
+
+def get_workflow_processes(workflow_config, year: str):
+    """every (non-Data) process of the workflow's dataset keys, in fileset order. Unlike
+    get_workflow_key_process_map (one process per key), a key shared by several processes
+    (e.g. 2024 `dy_nlo` = DYll + DYtautau) contributes all of them"""
+    sample_keys = set(np.concatenate(list(workflow_config.datasets.values())).tolist())
+    processes = []
+    for sample, config in get_dataset_config(year).items():
+        if config["process"] == "Data":
+            continue
+        keys = config["key"] if isinstance(config["key"], list) else [config["key"]]
+        if sample_keys.intersection(keys) and config["process"] not in processes:
+            processes.append(config["process"])
+    return processes
 
 
 def get_process_era_map(year: str):

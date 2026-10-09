@@ -62,14 +62,25 @@ def get_trigger_match_mask(events, hlt_paths, year, leptons):
 
 
 def get_metfilters_mask(events, year):
+    """AND of the MET filters of analysis/data/met/metfilters.json. A filter (or year)
+    missing from the json / the input file raises: skipping it would silently loosen the
+    selection."""
     with importlib.resources.path("analysis.data.met", "metfilters.json") as path:
         with open(path, "r") as handle:
-            metfilters = json.load(handle)[year]
+            metfilters_years = json.load(handle)
+    if year not in metfilters_years:
+        raise KeyError(f"no MET filters defined for year {year} in metfilters.json")
+    metfilters = metfilters_years[year]
     metfilters_mask = np.ones(len(events), dtype="bool")
     metfilterkey = "mc" if hasattr(events, "genWeight") else "data"
+    missing = [mf for mf in metfilters[metfilterkey] if mf not in events.Flag.fields]
+    if missing:
+        raise KeyError(
+            f"MET filters {missing} ({year}, {metfilterkey}) are not in the input file "
+            f"{events.metadata.get('filename', '')!r}"
+        )
     for mf in metfilters[metfilterkey]:
-        if mf in events.Flag.fields:
-            metfilters_mask = metfilters_mask & events.Flag[mf]
+        metfilters_mask = metfilters_mask & events.Flag[mf]
     return metfilters_mask
 
 

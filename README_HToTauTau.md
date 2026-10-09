@@ -24,11 +24,29 @@ The three workflows share `analysis/workflows/includes/htautau_common.yaml` (`ex
 | `HplusBottom_HtoTauTau` (`hb_tautau`) | `H+b` | 24 | 10.0 M | 0.045194 | 5FS bH, σ = 720.8 fb × 0.0627 |
 
 Private FullSim productions under `/eos/user/a/ademoor/HcTT/`, H→ττ inclusive (all decay channels, no
-generator filter). The generator weights are ±constant (aMC@NLO, 21 % / 30 % negative in cH / bH):
+generator filter). Both are **signals** (workflow group `datasets.signal`): the analysis measures the cH and
+bH cross sections and their ratio, so bH is not part of the background stack or of "Total Background"
+in the postprocess cutflows. The generator weights are ±constant (aMC@NLO, 21 % / 30 % negative in cH / bH):
 normalise with Σw (the job metadata), never with event counts, and expect small categories to
 have non-monotonic cutflows. The pilot file `bH_fullsim_Summer24_v1_merged/tranche0_test/` (5011
-events) is kept out of the fileset for smoke tests. Background (DAS) and data entries are added to
-`analysis/filesets/2024_nanov15.yaml` later (primary datasets `Tau`, `Muon0/1`, `EGamma0/1`).
+events) is kept out of the fileset for smoke tests.
+
+**Backgrounds and data (2026-10-08)**, all `RunIII2024Summer24NanoAODv15-150X_mcRun3_2024_realistic_v2`, in
+`analysis/filesets/2024_nanov15.yaml` (the fileset JSON holds 41 entries):
+
+| process | fileset key(s) | samples | xsec [pb] |
+|---|---|---|---|
+| `DYll` | `dy_ll` | DYto2E / DYto2Mu-2Jets, MLL-50 and MLL-10to50 (amcatnloFXFX) | MLL-50: 2124.08 per flavour (NNLO QCD + NLO EW, FEWZ); MLL-10to50: 7076.7 / 7020.0 (XSDB, NLO) |
+| `DYtautau` | `dy_tautau` | DYto2Tau-2Jets, MLL-50 and MLL-10to50 | 2124.08; 7100.0 |
+| `Wjets` | `wjets_nlo` | WtoENu / WtoMuNu / WtoTauNu-2Jets (inclusive NLO; no inclusive WtoLNu exists in this campaign) | 21132.0 / 21132.0 / 21449.0 (NNLO QCD × NNLO EW, MATRIX, PDG 2025) |
+| `tt`, `Single Top`, `Diboson` | `tt`, `singletop`, `diboson` | as before | as before |
+| `ggH_htt`, `qqH_htt`, `VH_htt`, `ttH_nonbb` | `ggh_tautau`, `qqh_tautau`, `vh_tautau`, `tth_nonbb` | GluGluHto2Tau, VBFHto2Tau, W±H / ZH Hto2Tau, TTH HtoNon2B (no ttH→ττ sample) | LHCHWG 13.6 TeV × BR(ττ) 0.0627 (ttH: × (1 − BR(bb)), to confirm) |
+
+Z→ττ (irreducible) and Z→ℓℓ (ℓ→τh fakes) are separate processes; the MLL-50 entries also keep the
+key `dy_nlo` for the Z workflows. Data: `Tau` (eras C–I + I v2), `Muon0/1`, `EGamma0/1`. The channel
+yamls list their PDs under **`data_blinded:`**, which no runner / postprocess step reads: the data are
+defined but **not processed** (rename to `data:` to unblind). `datasets.mc` (common include) makes a
+default `runner.py` submission include every background above.
 
 ---
 
@@ -39,9 +57,9 @@ events) is kept out of the fileset for smoke tests. Background (DAS) and data en
 | `electrons` | mvaIso WP90, supercluster gap veto (1.44 < \|η_SC\| < 1.57), \|dxy\| < 0.045, \|dz\| < 0.2, two-leg kinematics (a looser (pT, η) branch for the cross-trigger leg, a harder one for the single-electron leg; eτh overrides the thresholds) |
 | `muons` | **defined by the μτh channel**; the common file only holds a loose placeholder (= the veto muon), so the other channels just count them |
 | `taus` | DeepTau2018v2p5 **VSjet Medium, VSe VVLoose, VSmu VLoose**; DM ∈ {0, 1, 10, 11}; \|dz\| < 0.2; \|q\| = 1; ΔR > 0.5 from the veto e/μ; generic baseline pT > 20, \|η\| < 2.3 (eτh: pT > 24.6; τhτh: pT > 24.6, \|η\| < 2.1, see Triggers) |
-| `veto_muons`, `veto_electrons` | pT > 10; μ: loose ID + PFIso04 < 0.3; e: mvaNoIso WP90 + PFIso03 < 0.3; **no impact-parameter cuts** (a second lepton must veto even if displaced or non-isolated) |
+| `veto_muons`, `veto_electrons` | pT > 10; μ: loose ID + PFIso04 < 0.3; e: (mvaNoIso WP90 + PFIso03 < 0.3) **or** mvaIso WP90, so the veto is a superset of the eτh signal electron (since 2026-10-08; with mvaNoIso alone ~4 % of the signal electrons were not veto electrons and `n_veto_e == 1` lost them); **no impact-parameter cuts** (a second lepton must veto even if displaced or non-isolated) |
 | `jets`, `cjets`, `bjets` | pT > 20, \|η\| < 2.5, tight-lepton-veto ID (recomputed from the energy fractions: `Jet_jetId` does not exist in v15), ΔR > 0.5 from the pair legs; c / b tagging = UParT medium working points |
-| `met` | `PuppiMET`, with the JEC and tau-energy-scale corrections propagated (the correction manager writes them back into `PuppiMET`) |
+| `met` | `PuppiMET`, with the JEC/JER (Type-1 re-propagated relative to the NanoAOD jet pT) and tau-energy-scale corrections propagated (the correction manager writes them back into `PuppiMET`). No recoil or xy correction. NanoAODv15 also has `PuppiMET_cov*` (for SVfit / FastMTT), `PFMET_*` (monitored as `pfmet_*`) and `DeepMET*` |
 | `*_study` | validation objects: the object-level denominators of the trigger studies (`muons_study`: channel-defined, placeholder in the common file) |
 
 Working points live in `analysis/working_points/working_points.py` (`muon_id`, `muon_iso`,
@@ -61,7 +79,10 @@ helpers in `analysis/selections/htautau.py`), in this order in the common includ
 | `candidate_cjet` (`select_candidate_cjet`) | the c-jet candidate |
 | `htt_met_vars` (`select_htt_met_vars`) | `higgs_mass_vis`, `higgs_pt/eta/phi`, `higgs_dr_legs`, `higgs_dphi_legs`, `higgs_deta_legs`, `higgs_charge_product`, `mt_lepton_met`, `mt_tau_met`, `higgs_mt_legs`, `higgs_mt_tot`, `dphi_*_met`, `higgs_dzeta`, `higgs_mass_col` (+ `higgs_mass_col_valid`), `higgs_met_pt` |
 | `gen` (`select_gen_htautau`) | `gen_channel`, `gen_leptons`, `gen_muons`, `gen_electrons`, `gen_vistaus`, `gen_higgs`, `gen_hfquarks`, `gen_jets`, `genjet1..3`, `gen_vistau1/2`, `gen_lepton`, `gen_met`, `gen_higgs_mass_vis`, ... |
-| `acc` (`select_acceptance_flags`) | `in_gen_acc_<channel>`: the gen-level image of the trigger-study denominators |
+| `acc` (`select_acceptance_flags`) | `in_gen_acc_<channel>`: the gen-level image of the **reco kinematic cuts** of the channel (eτh: e (pT > 25, \|η\| < 2.1) or (pT > 32, \|η\| < 2.5), τ_vis pT > 24.6, \|η\| < 2.3; τhτh: two τ_vis with pT > 24.6, \|η\| < 2.1) |
+| `best_cvl_jet` (`select_best_cvl_jet`) | the selected jet with the highest CvL (all `jets`, not only the c-tagged ones) |
+| `cjet_truth` (`select_cjet_truth`) | ΔR(c-jet candidate, nearest hard-process gen c), the pT and CvL rank of the leading true c-jet (hadronFlavour 4) among the selected jets (MC) |
+| `tau_response` (`select_tau_response`) | `l{1,2}_tau_response(_raw)`: reco τh pT (after / before TES) / gen visible pT, genuine τh only (genPartFlav 5; `Tau_genPartIdx` indexes `GenVisTau`, resolved by hand because coffea cross-references it to `GenPart`) |
 
 Pair ranking (`build_htt_pair` + a recipe, applied with successive stable sorts): eτh (`RANK_ETAU`)
 takes the most isolated electron, then the highest electron pT, then the highest τh raw VSjet score,
@@ -71,9 +92,16 @@ l1 = the leading-pT τh.
 **Gen classification** (`gen_htautau_channel`): 1 μτh, 2 eτh, 3 τhτh, 4 fully leptonic, 0 none (and
 data). Leptons count only if their direct mother is a τ **and** they carry
 `isDirectHardProcessTauDecayProduct`: τ leptons from B/D-hadron decays, frequent in the cH/bH
-samples, must not change the classification. `gen_vistaus` are the `GenVisTau` of the hard-process
-τ leptons (pT > 10 builder cut). Gen jets are cleaned against the visible τ decay products, and
-`gen_hfquarks` are the outgoing hard-process c/b quarks.
+samples, must not change the classification. `gen_vistaus` are the `GenVisTau` whose mother (the
+last-copy τ) carries `fromHardProcess` and `isLastCopy` (pT > 10 builder cut). Until 2026-10-08 the
+mother was required to carry `isHardProcess`, which only the first copy has: about 2/3 of the
+genuine visible τ were dropped (bH pilot: 2137 → 5960 of 5972 kept; events with two visible τ
+628 → 1806). Gen jets are cleaned against the visible τ decay products, and `gen_hfquarks` are the
+outgoing hard-process c/b quarks.
+
+**Trigger-study and acceptance numbers produced before 2026-10-08** (`trigger_eff.md`, `in_gen_acc`,
+the `trig_gen*` layouts, gen m_vis / gen-jet histograms) used the old `gen_vistaus` and the old
+acceptance cuts: they are stale until the samples are rerun.
 
 ## Categories
 
@@ -91,7 +119,13 @@ Selections defined in the common include: `goodvertex`, `lumimask`, `met_filters
 `os_pair`, `ss_pair`, `gen_mutau` / `gen_etau` / `gen_tautau`, plus the optional
 `mt_lepton_met_lt70`, `bveto` and `atleast_one_cjet`. Scale factors are applied only in the
 categories matching `event_weights.object_sf_categories` (`sel_*`). Cutflows: `cutflow_<cat>.csv`
-holds the Σ genWeight (no scale factors) and `cutflow_raw_<cat>.csv` the event counts.
+holds the Σ genWeight (no scale factors) and `cutflow_raw_<cat>.csv` the event counts. Since
+2026-10-08 the job metadata cutflow starts with `initial` (before the jet veto, = Σw used for the
+normalisation) and `jet_veto` (after it); the per-category CSVs list the category cuts only.
+
+`event_selection.mc_only_categories` lists the categories that are meaningless or double counted on
+data (`gen_<ch>`, `den_<ch>_study`, `sel_<ch>` without trigger, `sel_<ch>_trig_gen<ch>`): they are
+not filled (no histograms, no cutflow) when running on data.
 
 ## Triggers
 
@@ -138,8 +172,17 @@ SFs are measured for the PNet paths.
 24.6 GeV is the lower edge of the 2024 `tau_trigger` fit range (below it the correction raises), not
 a plateau. The DeepTau di-tau paths have no 2024 SF and are study axes only.
 
-**Before running on data**: check per era that every adopted HLT branch exists and fires (a missing
-branch is treated as "not fired", with only a warning) and check the L1 seed prescales.
+`trig_ditaujet` is exclusive w.r.t. the **matched** `trig_ditau` region, not w.r.t. the DiTau_PNet
+decision (checked 2026-10-07): the TAU POG per-leg SFs are unconditional efficiencies from μτh
+tag-and-probe (the di-tau path is never vetoed), so neither exclusion makes the SF product exact, and
+decision-level exclusion moved ~1 % of the region. Public Run-3 PNet frameworks (uhh-cms/hh2bbtautau)
+also use matched-trigger indicators. Possible upgrade: their OR formula with the `eff_data` / `eff_mc`
+of `tau_trigger`.
+
+**Before running on data**: check the L1 seed prescales. HLT branches were checked (2026-10-08) in
+one file per era (C–I + I v2) of the Tau / EGamma0 / Muon0 PDs: every adopted path exists. A flag
+whose paths are **all** missing from a file, an unknown flag and a missing MET filter now raise
+(a partially missing flag still only warns).
 
 ## Scale factors and calibrations (2024)
 
@@ -150,7 +193,7 @@ branch is treated as "not fired", with only a warning) and check the L1 seed pre
 | muon scale / smearing | `muon_ss.py` (2024 corrections for 26 < pT < 200 GeV; other muons keep their NanoAOD pT; unseeded random numbers) | yes |
 | electron scale / smearing | `electron_ss.py` (supercluster η) | yes |
 | tau energy scale (propagated to PuppiMET) | `tau.py`; `corrections.tau_es` must match the τh selection WPs | yes (MC) |
-| pileup (`Collisions2024_preliminary`), PS / PDF / scale weights | `pileup.py`, `correction_manager.py` | yes (variations filled only with `fill_variations: true`) |
+| pileup (official LUM 2026-04-15 `puWeights_CDEFGHI.json.gz`, `Collisions24_CDEFGHI_goldenJSON`, pinned; replaces the private `Collisions2024_preliminary` since 2026-10-08), PS / PDF / scale weights | `pileup.py`, `correction_manager.py` | yes (variations filled only with `fill_variations: true`) |
 | muon ID / isolation SFs | `MuonWeights` (MUO `muon_Z.json.gz`, signed-η maps) | in the channel that selects muons (`event_weights.muon`) |
 | electron ID (wp90iso) / reco SFs | `ElectronWeights` (supercluster η) | eτh |
 | τh ID SFs, DeepTau2018v2p5 VSjet / VSe / VSmu | `TauWeights` on the pair legs (`htt_taus`) | all channels |
@@ -159,6 +202,7 @@ branch is treated as "not fired", with only a warning) and check the L1 seed pre
 | τ-leg trigger SFs (`tau_trigger`: `ditau`, `ditaujet`, `mutau`, `etau`; PNet paths; DM-binned; from 24.6 GeV) | `TauWeights.add_trigger_weights`, per trigger region | eτh, τhτh |
 | c-tag / b-tag SFs | no 2024 set for this selection | **no** |
 | object shifts (JES/JER, μ/e scale+res, τ ES Up/Down, unclustered MET) | `object_shifts: true` | off |
+| MET recoil corrections (DY / W+jets / H MC), MET xy (φ-modulation) correction, μ / e scale-smearing → MET | not implemented (`update_met` and `apply_met_phi_corrections` exist but are not called) | **no** |
 
 The correction files per year are in `analysis/corrections/correctionlib_files.py` (plus
 `jec_params_correctionlib.yaml` for the JEC tags). When jobs die with a JEC `KeyError`, compare the
@@ -179,6 +223,18 @@ objects. The channel files add their lepton axes and multi-axis layouts:
 - `higgs_mass_col` is physical (0 < x₁, x₂ ≤ 1) in only ~25–45 % of the events and NaN otherwise:
   use `higgs_mt_tot` as the default mass proxy for now.
 - Axes with `mc_only: true` (gen-level quantities, flavours) are filled with NaN on data.
+
+Added 2026-10-08 (plot folders `ctag/` and `detector/`, placed before `jets/` in `plotting.groups`):
+
+| group | axes / layouts |
+|---|---|
+| `ctag/` | best-CvL jet among **all** selected jets: `bestcvl_pt/eta/hadronflavour`, UParT `bestcvl_cvsl/cvsb/b_upart`; 2D (CvL, CvB) `ctag2d_bestcvl`, `ctag2d_jet1` (20 × 20); `hf_tag_category` (0 = no c/b tag, 1 = ≥ 1 c-tag and no b-tag, 2 = ≥ 1 b-tag; b has priority); c-jet truth (MC): `cjet_partonflavour`, `cjet_dr_genc` (overflow when there is no hard-process c), `truecjet_pt_rank`, `truecjet_cvl_rank` (0 = highest; overflow = no true c-jet) |
+| `detector/` | `rho` (`Rho_fixedGridRhoFastjetAll`), `pu_ntrueint` (MC), η–φ maps `etaphi_tau`, `etaphi_jet1` (+ `etaphi_ele` in eτh, `etaphi_tau1` in τhτh) |
+| `tau/` | τ response (MC, genuine τh): `tau_response`, `tau_response_raw` and the per-DM layouts `tau_response_by_dm`, `tau_response_raw_by_dm` (τhτh: also `tau1_response*_by_dm`) |
+
+`plot_shapes.py` draws two-axis layouts (other than `trig_*` / `*_by_tauwp`) as one panel per process,
+saved under the layout name: a 2D map (`--logz` for a log colour scale), or, when the second axis is
+a category (DM), one unit-area curve per category with the weighted median in the legend.
 
 ## Output layout
 
@@ -203,6 +259,28 @@ Folder names and variable groups come from the `plotting:` block of the workflow
 `group_labels`, `groups` = fnmatch patterns on the axis names). "lepton" is pair leg 1 (μ, e or
 the leading τh) and "tau" is the τh leg.
 
+## First MC campaign (2026-10-08/09): eτh and τhτh
+
+All MC (31 background samples + cH + bH) ran on condor for both workflows (5 files per job); data stay
+blinded. Reports with the full numbers: `DeepTau2PNET/eTau_analysis_feedback_2026-10-08.md` and
+`DeepTau2PNET/tauTau_analysis_feedback_2026-10-09.md` (§7: the limit method).
+
+| (108.96 fb⁻¹, MC only, no QCD) | eτh | τhτh |
+|---|---|---|
+| SR yield H+c / H+b | 5.57 / 42.4 | 7.32 / 56.0 |
+| total background | 2.14M (DYll e→τh 56 %, W 21 %, Z→ττ 14 %) | 0.40M (Z→ττ 85 %) |
+| S/√B H+c / H+b | 0.0038 / 0.029 | 0.0116 / 0.089 |
+| stat-only expected limit (× SM, m_vis × 0/c/b) | 439 / 48.4 (best variant 262 / 32.3) | 92 / 10.9 |
+
+- eτh + τhτh: 90 / 10.6 × SM (86 / 10.3 with eτh vsE Tight + vsJet Tight + mT < 70); 120 / 14.2 with a QCD
+  placeholder. Statistics only: S/B is 1e-6 – 1e-4, systematics will dominate unless the backgrounds are
+  constrained in situ.
+- The fit variable is m_vis (10 GeV bins) split into the 0/c/b tag categories by factorisation: there is no
+  joint histogram of two physics variables yet, and no m_ττ (SVfit / FastMTT).
+- Open items: QCD multijet (needs data sidebands), the τhτh Z→ττ yield (above published CMS numbers), the
+  τhτh trigger turn-on (24.6 GeV threshold), vsE Tight in eτh, the cH generator card (~70 % of cH events
+  have no hard c quark), the c-tag light mistag rate.
+
 ## Known traps
 
 - Σw, not event counts, for normalisation (negative weights). `run_postprocess.py` refuses to
@@ -216,6 +294,21 @@ the leading τh) and "tau" is the τh leg.
   are clamped with a warning: the object selection must not admit lower-pT legs into a region.
 - `run_postprocess.py --plot` (data/MC stacks) needs an MC process; for the signal-only stage use
   `scripts/htautau/plot_shapes.py`.
+- Status of the 2026-10-08 changes (electron veto, pileup, gen visible τ, acceptance, new variables,
+  backgrounds, `data_blinded`, `mc_only_categories`, cutflow rows): implemented, validated on the
+  pilot / one file per sample, and used by the 2026-10-08 condor campaign (signals included). The
+  older outputs were moved to `outputs/<wf>/2024_oldsignal_20260916`. Do not mix per-part outputs from
+  before and after (the cutflow `initial` row changed meaning). `plot_shapes.py` on outputs produced
+  before 2026-10-08 skips the new layouts with one warning.
+- Condor: a job that fails at the same job number in several workflows is a bad file replica, not a
+  transient error. Find the file in the `.err`, test-open it through a redirector
+  (`root://xrootd-cms.infn.it/` or `root://cms-xrd-global.cern.ch/`), reroute it in the fileset JSON
+  **and** in every workflow's `condor/<wf>/2024/<dataset>/partitions.json`, remove the queued copies and
+  resubmit only the missing job numbers with the same partitions (never `jobs_status.py` for this: it
+  re-fetches and renumbers the parts). A redirector can still send the job back to the bad replica:
+  then pin a good site URL.
+- The stacked plotter (`run_postprocess.py --plot`) skips the x-range zoom for an all-empty histogram
+  (e.g. `gen_lepton_*` in the τhτh gen category) instead of crashing.
 - Do not edit processor-side code while `run_signal_local.sh` or condor jobs run: every part/job
   imports the current code.
 
